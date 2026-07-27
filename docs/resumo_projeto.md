@@ -8,29 +8,40 @@ Your Markdown document is ready
 ```markdown
 # Documento de Handoff & Resumo de Contexto - Projeto Estação de Sensores ESP32
 
-**Status do Projeto:** Funcional (Comunicação ESP-NOW + Servidor Web Assíncrono com LittleFS + HTML/CSS/JS Decouplados)
-
----
+## **Status do Projeto:** Funcional (Comunicação ESP-NOW + Servidor Web Assíncrono com LittleFS + HTML/CSS/JS Decouplados)
 
 ## 1. Visão Geral e Objetivo
 
 Desenvolvimento de um sistema de monitoramento de sensores distribuído utilizando placas ESP32. O sistema consiste em módulos **Emissores** (que leem sensores como DHT11 e transmitem via ESP-NOW) e um módulo **Receptor/Central** (que recebe os dados via rádio, exibe no display local OLED, hospeda uma página Web local no LittleFS e fornece uma API JSON em tempo real via Wi-Fi para smartphones/navegadores).
 
----
+## 1.1 Objetivo
+
+## Chegar a um protótipo tipo maquete com um sistema aplicavel em que poderemos acionar um secador de cabelos via site hospedado em host, causando elevação de temperatura, e forçando o sistema de exaustão (ventilador) trazendo a temperatura de volta ao normal, com acionamento e desligamento automático.
 
 ## 2. Hardware e Infraestrutura
 
-- **Placas:** ESP32 (TTGO T-Display / DevKit v1)
-- **Mapeamento de Portas COM (Hub USB com Fonte Externa):**
+- **Placas:** ESP32 LoRa LyliGo (TTGO T-Display / DevKit v1) - 2 unidades
+  - interface para ESP32 LoRa REV2.0/2022 com fonte de alimentação integrada 127vac~240vav-5vdc 0.6A - 2 unidades
+- **Mapeamento de Portas COM (Hub USB com Fonte Externa 5v 3A):**
   - **COM3:** Placa Receptora (Central Web)
   - **COM4:** Placa Emissora (Sensor DHT11)
 - **Periféricos & Sensores:**
-  - Display OLED I2C (SSD1306): Pinos SDA=21, SCL=22
-  - Sensor DHT11 (na placa emissora)
+  - Display OLED I2C (SSD1306): Pinos SDA=21, SCL=22 - cada unidade ESP32 carrega um Oled
+  - Sensor DHT11 (na placa emissora) 1 unidade
+  - Relé de estado solido FOTEK SSR-25DA 25A 3-32vdc/24-380vac com dissipadores/fixadores de trilho DIN TS35 - 2 unidades
+  - placa de relé HW-316 com 4 relés independentes JQC3F-05vdc-c 250vac 10A
+  - 4 mini protoboards
+  - 1 secador de cabelos residencial de 3500W 127v
+  - 1 ventilador residencial de 50W 127v
 - **Rede / Wi-Fi:**
   - Modo Wi-Fi do Receptor: `WIFI_AP_STA` (Canal 1 fixo)
   - SSID da Rede Local: `ESP32_Estacao` | Senha: `12345678`
   - IP de Acesso: `192.168.4.1`
+    **Recursos extras disponíveis no laboratório**
+  - Multimetro simples de uso geral para medições de componentes, continuidade e Vac Vdc
+  - Roteador Wi-Fi residencial `NILSON 2.4`
+  - Senha `81111270in`
+  - Assinatura Hostgator M anual
 
 ---
 
@@ -167,13 +178,16 @@ display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
 display.setTextColor(WHITE);
 display.setTextSize(1);
 
+//inicializa LittleFS com opção de formatar em caso de erro na 1º tentativa
 if (!LittleFS.begin(true)) {
 Serial.println("Erro ao montar o LittleFS!");
 }
 
+//Inicializa WiFi
 WiFi.mode(WIFI_AP_STA);
 WiFi.softAP("ESP32_Estacao", "12345678", 1);
 
+//inicializa ESP-NOW
 if (esp_now_init() == ESP_OK) {
 esp_now_register_recv_cb(AoReceber);
 memcpy(peerInfo.peer_addr, macDestino, 6);
@@ -182,18 +196,24 @@ peerInfo.encrypt = false;
 esp_now_add_peer(&peerInfo);
 }
 
+//Configuração das rotas do servidor
+
+//servir index.html
 server.on("/", HTTP_GET, [](AsyncWebServerRequest \*request){
 request->send(LittleFS, "/index.html", "text/html");
 });
 
+//servir style.css
 server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest \*request){
 request->send(LittleFS, "/style.css", "text/css");
 });
 
+//servir script.js
 server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest \*request){
 request->send(LittleFS, "/script.js", "text/javascript");
 });
 
+//servir json
 server.on("/dados", HTTP_GET, [](AsyncWebServerRequest \*request){
 String json = "{";
 json += "\"temperatura\":" + String(dadosRecebidos.temperatura, 1) + ",";
@@ -203,6 +223,7 @@ json += "}";
 request->send(200, "application/json", json);
 });
 
+// inicia servidor Web
 server.begin();
 }
 
@@ -298,7 +319,31 @@ setInterval(atualizarDados, 2000);
 
 ## 7. Próximos Passos
 
+- inserção de botão no HTML para acionamento de aquecedor (secador de cabelos por 30seg) consolidado em 
+- inserção de confirmação de acionamento elétrico no local, ou seja, em série após o led, será ligado um optoacoplador, que enviará sinal de 3v de    volta para o esp32, este sinal só chegará no esp32 caso o sinal chegar no optoacoplador 
+- inserção de código para acionamento de ventilador, caso a temperatura ultrapasse um limite determinado, e desligue quando chegar à temp determinada
+- criação de um banco de dados sql no provedor hostgator
+- inserção de dados automaticamente (hora/temperatura/umidade) no banco de dados com PHP
+- inserção de site para acesso global na hostgator tão simples quanto o site do LittleFS
+- inserção de logo e relatorio de dados do banco sql no site
+- teste de campo para verificação de funcionamento à distancia com powerbank alimentando o receptor, e teste via internet com smartfone
+- configurar nova unidade esp32 LyLigo oled (que ainda será adquirida) para servir de gateway e aumentar alcance
+- definir todas as necessidades de aplicações com seus respectivos sensores (apenas quando todos os passos anteriores forem consolidados)
 - Refatorar o código C++ aplicando **Programação Orientada a Objetos (POO)** com classes dedicadas (`DisplayManager`, `WebServerManager`, `SensorManager`).
 - Suporte a múltiplos transmissores.
-- Integração futura com rádio LoRa / MQTT na nuvem.
+
+---
+
+## 8. Informações gerais de parametros para IA auxiliar
+
+- respostas diretas e sem abstrações.
+- cada fase, e cada passo deve ser respeitado, só passamos adiante depois de: funcionamento confirmado, commit local e nuvem, incrementação de documentação do projeto.
+- quando indicar o passo a passo de ligações eletrônicas, pode ser uma lista de itens curtos, pois tenho maior domínio
+
+## 8.1 Lista de commits com descrições e respectivas datas
+
+- Date: Sat Jul 25 17:39:53 2026 Adição de documento resumo projeto
+- Date: Sat Jul 25 17:13:46 2026 adiciona serv web assincrono com LittleFs (html,css,js)
+- Date: Wed Jul 22 00:48:32 2026 inserção DHT11 sensor temperatura/umidade
+- Date: Tue Jul 21 15:17:37 2026 Comunic Bidirecional base ESP-NOW OLED
 ```

@@ -1,91 +1,130 @@
-// bibliotecas
-#include <esp_now.h>          //bibl c funções protocolo esp
-#include <WiFi.h>             //funcionamento do radio esp32 no modo wifi correto
-#include <Wire.h>             //comunicacao
-#include <Adafruit_GFX.h>     //renderizacao grafica oled
-#include <Adafruit_SSD1306.h> //renderizacao texto oled
+#include <esp_now.h>
+#include <esp_wifi.h>
+#include <WiFi.h>
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
 #include <DHT.h>
 
-#define SCREEN_WIDTH 128 // constantes p uso do adafruit
+#define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1); // configuração adafruit para tela
+Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// configuração do Sensor DHT11 no GPIO15
-#define DHTPIN 15
+#define DHTPIN 4
 #define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-// MAC da PLACA B
-uint8_t macDestino[] = {0xA0, 0xDD, 0x6C, 0x67, 0xC6, 0x34}; // mac da receptora para envio
+#define PINO_AQUECEDOR 23
+#define PINO_RETORNO_ENERGIA 34
 
-// estrutura de dados - pacote de comunicação
-typedef struct struct_mensagem
-{
-  int contador;
-  char status[10];
-  float temperatura;
-  float umidade;
+unsigned long tempoInicioAquecedor = 0;
+bool aquecedorAtivo = false;
+const unsigned long DURACAO_AQUECEDOR = 30000; // 30s
+
+uint8_t macReceptor[] = {0xA0, 0xDD, 0x6C, 0x67, 0xC6, 0x34}; // MAC do Receptor
+
+typedef struct struct_mensagem {
+    int contador;
+    float temperatura;
+    float umidade;
+    bool energiaOk;
 } struct_mensagem;
 
+typedef struct struct_comando {
+    bool acionarAquecedor;
+} struct_comando;
+
 struct_mensagem dadosEnvio;
-struct_mensagem dadosRecebidos;
+struct_comando comandoRecebido;
 esp_now_peer_info_t peerInfo;
 
-// função callback e recepção
-void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len)
-{
-  memcpy(&dadosRecebidos, incomingData, sizeof(dadosRecebidos));
+int contadorPacotes = 0;
+unsigned long ultimoEnvio = 0;
 
-  display.clearDisplay();
-  display.setCursor(0, 0);
-  display.println("PLACA A (DHT11)");
-  display.setCursor(0, 16);
-  display.print("Temp: ");
-  display.print(dadosEnvio.temperatura, 1);
-  display.println(" C");
-  display.setCursor(0, 32);
-  display.print("Umid: ");
-  display.print(dadosEnvio.umidade, 1);
-  display.println(" %");
-  display.setCursor(0, 48);
-  display.print("Resp: ");
-  display.println(dadosRecebidos.status);
-  display.display();
+void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
+    // Força o acionamento direto sem validar o tamanho estrito da struct
+    digitalWrite(PINO_AQUECEDOR, HIGH);
+    aquecedorAtivo = true;
+    tempoInicioAquecedor = millis();
+    Serial.println(">>> AQUECEDOR LIGADO VIA ESP-NOW! <<<");
 }
 
-void setup()
-{
-  Serial.begin(115200);
-  Wire.begin(21, 22);
-  display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-  display.setTextColor(WHITE);
-  display.setTextSize(1);
+void setup() {
+    Serial.begin(115200);
+    
+    // Inicialização do OLED no Emissor
+    Wire.begin(21, 22);
+    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+    display.setTextColor(WHITE);
+    display.setTextSize(1);
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("PLACA A (EMISSOR)");
+    display.display();
 
-  dht.begin(); // inicializa o dht11
+    // Configuração e inicialização do DHT11
+    pinMode(DHTPIN, INPUT_PULLUP);
+    dht.begin();
+    delay(2000); // Estabilização do sensor
 
-  WiFi.mode(WIFI_STA);
-  esp_now_init();
-  esp_now_register_recv_cb(AoReceber);
+    pinMode(PINO_AQUECEDOR, OUTPUT);
+    digitalWrite(PINO_AQUECEDOR, LOW);
+    pinMode(PINO_RETORNO_ENERGIA, INPUT);
 
-  memcpy(peerInfo.peer_addr, macDestino, 6);
-  peerInfo.channel = 0;
-  peerInfo.encrypt = false;
-  esp_now_add_peer(&peerInfo);
+    WiFi.mode(WIFI_STA);
 
-  dadosEnvio.contador = 0;
+    esp_wifi_set_promiscuous(true);
+    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_promiscuous(false);
+
+    if (esp_now_init() == ESP_OK) {
+        esp_now_register_recv_cb(AoReceberComando);
+        memcpy(peerInfo.peer_addr, macReceptor, 6);
+        peerInfo.channel = 1;
+        peerInfo.encrypt = false;
+        esp_now_add_peer(&peerInfo);
+    }
 }
 
-void loop()
-{
-  dadosEnvio.contador++;
-  strcpy(dadosEnvio.status, "PING");
+void loop() {
+    // Desligamento automático temporizado
+    if (aquecedorAtivo && (millis() - tempoInicioAquecedor >= DURACAO_AQUECEDOR)) {
+        digitalWrite(PINO_AQUECEDOR, LOW);
+        aquecedorAtivo = false;
+    }
 
-  // leitura do dht11
-  dadosEnvio.umidade = dht.readHumidity();
-  dadosEnvio.temperatura = dht.readTemperature();
+    if (millis() - ultimoEnvio >= 2000) {
+        ultimoEnvio = millis();
 
-  // Envia dado para a Placa B
-  esp_now_send(macDestino, (uint8_t *)&dadosEnvio, sizeof(dadosEnvio));
+        float temp = dht.readTemperature();
+        float umid = dht.readHumidity();
 
-  delay(2000);
+        if (!isnan(temp) && !isnan(umid)) {
+            dadosEnvio.temperatura = temp;
+            dadosEnvio.umidade = umid;
+        }
+
+        contadorPacotes++;
+        dadosEnvio.contador = contadorPacotes;
+        dadosEnvio.energiaOk = digitalRead(PINO_RETORNO_ENERGIA);
+
+        // Atualização do Display OLED local no Emissor
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.println("PLACA A (EMISSOR)");
+        display.setCursor(0, 16);
+        display.print("Temp: ");
+        display.print(dadosEnvio.temperatura, 1);
+        display.println(" C");
+        display.setCursor(0, 32);
+        display.print("Umid: ");
+        display.print(dadosEnvio.umidade, 1);
+        display.println(" %");
+        display.setCursor(0, 48);
+        display.print("Pacote enviado: #");
+        display.println(dadosEnvio.contador);
+        display.display();
+
+        esp_now_send(macReceptor, (uint8_t *)&dadosEnvio, sizeof(dadosEnvio));
+    }
 }

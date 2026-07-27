@@ -1,14 +1,50 @@
 function atualizarDados() {
-  // Adiciona a hora atual na URL para evitar que o navegador use dados em cache
-  fetch('/dados?t=' + new Date().getTime())
-    .then(response => response.json())
-    .then(data => {
-      document.getElementById('temp').innerText = data.temperatura;
-      document.getElementById('umid').innerText = data.umidade;
-      document.getElementById('contador').innerText = data.contador;
-    })
-    .catch(err => console.log('Erro ao buscar dados:', err));
+    fetch('/dados?t=' + new Date().getTime(), { cache: 'no-store' })
+        .then(response => {
+            if (!response.ok) throw new Error('Erro na resposta');
+            return response.json();
+        })
+        .then(data => {
+            // Atualiza os valores na tela
+            document.getElementById('temp').innerText = data.temperatura;
+            document.getElementById('umid').innerText = data.umidade;
+            document.getElementById('contador').innerText = data.contador;
+            
+            // Atualiza o LED de retorno de energia
+            const led = document.getElementById('ledStatus');
+            if (data.energia_ok) {
+                led.className = 'led ligado';
+            } else {
+                led.className = 'led desligado';
+            }
+        })
+        .catch(err => console.log('Aguardando dados...:', err));
 }
 
-// Executa a função a cada 2000ms (2 segundos)
+function acionarAquecedor() {
+    const btn = document.getElementById('btnAquecedor');
+    if (btn) btn.disabled = true;
+
+    fetch('/ligar-aquecedor', { 
+        method: 'POST',
+        cache: 'no-store'
+    })
+    .then(response => {
+        console.log('Comando enviado com sucesso');
+        // Força uma atualização imediata do painel após o clique
+        atualizarDados();
+    })
+    .catch(err => console.log('Erro ao acionar:', err))
+    .finally(() => {
+        // Reabilita o botão após 1 segundo
+        setTimeout(() => {
+            if (btn) btn.disabled = false;
+        }, 1000);
+    });
+}
+
+// Garante o loop contínuo de atualização a cada 2 segundos
 setInterval(atualizarDados, 2000);
+
+// Executa a primeira leitura assim que a página carrega
+document.addEventListener('DOMContentLoaded', atualizarDados);
