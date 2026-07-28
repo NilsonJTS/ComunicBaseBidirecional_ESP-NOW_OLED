@@ -15,7 +15,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 DHT dht(DHTPIN, DHTTYPE);
 
 #define PINO_AQUECEDOR 23
+#define PINO_EXAUSTAO 18
 #define PINO_RETORNO_ENERGIA 34
+#define PINO_RETORNO_EXAUASTAO 35
 
 unsigned long tempoInicioAquecedor = 0;
 bool aquecedorAtivo = false;
@@ -28,10 +30,12 @@ typedef struct struct_mensagem {
     float temperatura;
     float umidade;
     bool energiaOk;
+    bool exaustaoOK;
 } struct_mensagem;
 
 typedef struct struct_comando {
     bool acionarAquecedor;
+    bool ligarExaustao;
 } struct_comando;
 
 struct_mensagem dadosEnvio;
@@ -42,11 +46,16 @@ int contadorPacotes = 0;
 unsigned long ultimoEnvio = 0;
 
 void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
-    // Força o acionamento direto sem validar o tamanho estrito da struct
-    digitalWrite(PINO_AQUECEDOR, HIGH);
-    aquecedorAtivo = true;
-    tempoInicioAquecedor = millis();
-    Serial.println(">>> AQUECEDOR LIGADO VIA ESP-NOW! <<<");
+    memcpy(&comandoRecebido, incomingData, sizeof(comandoRecebido));
+
+    if (comandoRecebido.acionarAquecedor){
+        digitalWrite(PINO_AQUECEDOR, HIGH);
+        aquecedorAtivo = true;
+        tempoInicioAquecedor = millis();
+        Serial.println(">>> Aquecedor Ligado via ESP-NOW! <<<");
+    }
+
+    digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
 }
 
 void setup() {
@@ -70,6 +79,10 @@ void setup() {
     pinMode(PINO_AQUECEDOR, OUTPUT);
     digitalWrite(PINO_AQUECEDOR, LOW);
     pinMode(PINO_RETORNO_ENERGIA, INPUT);
+
+    pinMode(PINO_EXAUSTAO, OUTPUT);
+    digitalWrite(PINO_EXAUSTAO, LOW);
+    pinMode(PINO_RETORNO_EXAUASTAO, INPUT);
 
     WiFi.mode(WIFI_STA);
 
@@ -107,6 +120,7 @@ void loop() {
         contadorPacotes++;
         dadosEnvio.contador = contadorPacotes;
         dadosEnvio.energiaOk = digitalRead(PINO_RETORNO_ENERGIA);
+        dadosEnvio.exaustaoOK = digitalRead(PINO_RETORNO_EXAUASTAO);
 
         // Atualização do Display OLED local no Emissor
         display.clearDisplay();

@@ -1,4 +1,8 @@
 function atualizarDados() {
+
+    const ledExaustao = document.getElementById('ledExaustao');
+    const textoExaustao = document.getElementById('textoExaustao');
+
     fetch('/dados?t=' + new Date().getTime(), { cache: 'no-store' })
         .then(response => {
             if (!response.ok) throw new Error('Erro na resposta');
@@ -17,9 +21,19 @@ function atualizarDados() {
             } else {
                 led.className = 'led desligado';
             }
+        
+             if (data.exaustao_ok) {
+            ledExaustao.className = "led ligado";
+            textoExaustao.innerText = "Ligado";
+            }else{
+                ledExaustao.className = "led desligado";
+                textoExaustao.innerText = "Desligado";
+            }
+        
         })
         .catch(err => console.log('Aguardando dados...:', err));
 }
+
 
 function acionarAquecedor() {
     const btn = document.getElementById('btnAquecedor');

@@ -1,8 +1,3 @@
-Your Markdown document is ready
-[file-tag: code-generated-file-0-1785011100511797779]
-
----
-
 ### Conteúdo do Documento de Resumo
 
 ```markdown
@@ -16,7 +11,7 @@ Desenvolvimento de um sistema de monitoramento de sensores distribuído utilizan
 
 ## 1.1 Objetivo
 
-## Chegar a um protótipo tipo maquete com um sistema aplicavel em que poderemos acionar um secador de cabelos via site hospedado em host, causando elevação de temperatura, e forçando o sistema de exaustão (ventilador) trazendo a temperatura de volta ao normal, com acionamento e desligamento automático.
+## Chegar a um protótipo tipo maquete com um sistema aplicavel em que poderemos acionar um aquecedor (secador de cabelos no protótipo) via site hospedado em host, causando elevação de temperatura, e forçando o sistema de exaustão (ventilador) trazendo a temperatura de volta ao normal, com acionamento e desligamento automático.
 
 ## 2. Hardware e Infraestrutura
 
@@ -80,34 +75,40 @@ MEU_PROJETO/
 ## 5. Arquivos de Configuração e Código Atual
 
 ### 5.1. `platformio.ini`
+
 [env]
 platform = espressif32
 board = esp32dev
 framework = arduino
 monitor_speed = 115200
 board_build.filesystem = littlefs
+
 # CONFIGURAÇÃO DA PLACA EMISSORA
+
 [env:ttgo_emissor]
 upload_port = COM4
 monitor_port = COM4
-build_src_filter = +<*> -<receptor.cpp> -<main.cpp>
+build_src_filter = +<\*> -<receptor.cpp> -<main.cpp>
 lib_deps =
-    adafruit/DHT sensor library
-    adafruit/Adafruit Unified Sensor
-    adafruit/Adafruit GFX Library
-    adafruit/Adafruit SSD1306
+adafruit/DHT sensor library
+adafruit/Adafruit Unified Sensor
+adafruit/Adafruit GFX Library
+adafruit/Adafruit SSD1306
+
 # CONFIGURAÇÃO DA PLACA RECEPTORA
+
 [env:ttgo_receptor]
 upload_port = COM3
 monitor_port = COM3
-build_src_filter = +<*> -<emissor.cpp> -<main.cpp>
+build_src_filter = +<\*> -<emissor.cpp> -<main.cpp>
 lib_deps =
-    adafruit/Adafruit GFX Library
-    adafruit/Adafruit SSD1306
-    https://github.com/me-no-dev/ESPAsyncWebServer.git
-    https://github.com/me-no-dev/AsyncTCP.git
+adafruit/Adafruit GFX Library
+adafruit/Adafruit SSD1306
+https://github.com/me-no-dev/ESPAsyncWebServer.git
+https://github.com/me-no-dev/AsyncTCP.git
 
 ### 5.2. `src/emissor.cpp`
+
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <WiFi.h>
@@ -125,7 +126,9 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 DHT dht(DHTPIN, DHTTYPE);
 
 #define PINO_AQUECEDOR 23
+#define PINO_EXAUSTAO 18
 #define PINO_RETORNO_ENERGIA 34
+#define PINO_RETORNO_EXAUASTAO 35
 
 unsigned long tempoInicioAquecedor = 0;
 bool aquecedorAtivo = false;
@@ -138,10 +141,12 @@ typedef struct struct_mensagem {
     float temperatura;
     float umidade;
     bool energiaOk;
+    bool exaustaoOK;
 } struct_mensagem;
 
 typedef struct struct_comando {
     bool acionarAquecedor;
+    bool ligarExaustao;
 } struct_comando;
 
 struct_mensagem dadosEnvio;
@@ -152,11 +157,16 @@ int contadorPacotes = 0;
 unsigned long ultimoEnvio = 0;
 
 void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
-    // Força o acionamento direto sem validar o tamanho estrito da struct
-    digitalWrite(PINO_AQUECEDOR, HIGH);
-    aquecedorAtivo = true;
-    tempoInicioAquecedor = millis();
-    Serial.println(">>> AQUECEDOR LIGADO VIA ESP-NOW! <<<");
+    memcpy(&comandoRecebido, incomingData, sizeof(comandoRecebido));
+
+    if (comandoRecebido.acionarAquecedor){
+        digitalWrite(PINO_AQUECEDOR, HIGH);
+        aquecedorAtivo = true;
+        tempoInicioAquecedor = millis();
+        Serial.println(">>> Aquecedor Ligado via ESP-NOW! <<<");
+    }
+
+    digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
 }
 
 void setup() {
@@ -180,6 +190,10 @@ void setup() {
     pinMode(PINO_AQUECEDOR, OUTPUT);
     digitalWrite(PINO_AQUECEDOR, LOW);
     pinMode(PINO_RETORNO_ENERGIA, INPUT);
+
+    pinMode(PINO_EXAUSTAO, OUTPUT);
+    digitalWrite(PINO_EXAUSTAO, LOW);
+    pinMode(PINO_RETORNO_EXAUASTAO, INPUT);
 
     WiFi.mode(WIFI_STA);
 
@@ -217,6 +231,7 @@ void loop() {
         contadorPacotes++;
         dadosEnvio.contador = contadorPacotes;
         dadosEnvio.energiaOk = digitalRead(PINO_RETORNO_ENERGIA);
+        dadosEnvio.exaustaoOK = digitalRead(PINO_RETORNO_EXAUASTAO);
 
         // Atualização do Display OLED local no Emissor
         display.clearDisplay();
@@ -240,6 +255,7 @@ void loop() {
 }
 
 ### 5.3. `src/receptor.cpp`
+
 #include <esp_now.h>
 #include <WiFi.h>
 #include <Wire.h>
@@ -254,6 +270,9 @@ void loop() {
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 AsyncWebServer server(80);
 
+const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
+const float TEMPERATURA_DESLIGA_EXAUSTAO = 28.0;
+
 uint8_t macEmissor[] = {0xA0, 0xDD, 0x6C, 0x75, 0x0E, 0x14}; // MAC do Emissor
 
 // Struct idêntica à do Emissor
@@ -262,15 +281,18 @@ typedef struct struct_mensagem {
     float temperatura;
     float umidade;
     bool energiaOk;
+    bool exaustaoOK;
 } struct_mensagem;
 
 typedef struct struct_comando {
     bool acionarAquecedor;
+    bool ligarExaustao;
 } struct_comando;
 
 struct_mensagem dadosRecebidos;
 struct_comando comandoEnvio;
 esp_now_peer_info_t peerInfo;
+bool exaustaoLigada = false;
 
 void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     if (len == sizeof(dadosRecebidos)) {
@@ -291,6 +313,33 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
         display.print("Pacote: #");
         display.println(dadosRecebidos.contador);
         display.display();
+
+        if (!exaustaoLigada && dadosRecebidos.temperatura >= TEMPERATURA_LIGA_EXAUSTAO)
+        {
+            exaustaoLigada = true;
+
+            comandoEnvio.acionarAquecedor = false;
+            comandoEnvio.ligarExaustao = true;
+
+            esp_now_send(macEmissor,
+                         (uint8_t *)&comandoEnvio,
+                         sizeof(comandoEnvio));
+
+            Serial.println("Sistema de Exaustao LIGADO");
+        }
+        if (exaustaoLigada && dadosRecebidos.temperatura <= TEMPERATURA_DESLIGA_EXAUSTAO)
+        {
+            exaustaoLigada = false;
+
+            comandoEnvio.acionarAquecedor = false;
+            comandoEnvio.ligarExaustao = false;
+
+            esp_now_send(macEmissor,
+                        (uint8_t *)&comandoEnvio,
+                        sizeof(comandoEnvio));
+
+            Serial.println("Sistema de Exaustao DESLIGADO");
+        }
     }
 }
 
@@ -335,6 +384,8 @@ void setup() {
         json += "\"umidade\":" + String(h, 1) + ",";
         json += "\"contador\":" + String(dadosRecebidos.contador) + ",";
         json += "\"energia_ok\":" + String(dadosRecebidos.energiaOk ? "true" : "false");
+        json += ",\"exaustao_ligada\":" + String(exaustaoLigada ? "true" : "false");
+        json += ",\"exaustao_ok\":" + String(dadosRecebidos.exaustaoOK ? "true" : "false");
         json += "}";
     
         request->send(200, "application/json", json);
@@ -357,9 +408,9 @@ void setup() {
 void loop() {
 }
 
-
 ### 5.4. Arquivos da Pasta `data/`
 #### `data/index.html`
+
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
@@ -391,11 +442,19 @@ void loop() {
         </div>
     </div>
 
+    <div class="card">
+        <h3>Sistema de Exaustão</h3>
+        <span>Estado:</span>
+        <span id="ledExaustao" class="led desligado"></span>
+        <span id="textoExaustao">Desligado</span>
+    </div>
+
     <p>Pacotes recebidos: <b id="contador">0</b></p>
 </body>
 </html>
 
 #### `data/style.css`
+
 body {
     font-family: Arial, sans-serif;
     text-align: center;
@@ -454,9 +513,13 @@ button:disabled {
     background-color: #6c757d;
 }
 
-
 #### `data/script.js`
+
 function atualizarDados() {
+
+    const ledExaustao = document.getElementById('ledExaustao');
+    const textoExaustao = document.getElementById('textoExaustao');
+
     fetch('/dados?t=' + new Date().getTime(), { cache: 'no-store' })
         .then(response => {
             if (!response.ok) throw new Error('Erro na resposta');
@@ -475,9 +538,19 @@ function atualizarDados() {
             } else {
                 led.className = 'led desligado';
             }
+        
+             if (data.exaustao_ok) {
+            ledExaustao.className = "led ligado";
+            textoExaustao.innerText = "Ligado";
+            }else{
+                ledExaustao.className = "led desligado";
+                textoExaustao.innerText = "Desligado";
+            }
+        
         })
         .catch(err => console.log('Aguardando dados...:', err));
 }
+
 
 function acionarAquecedor() {
     const btn = document.getElementById('btnAquecedor');
@@ -507,7 +580,6 @@ setInterval(atualizarDados, 2000);
 // Executa a primeira leitura assim que a página carrega
 document.addEventListener('DOMContentLoaded', atualizarDados);
 
-
 ---
 
 ## 6. Fluxo de Comandos e Gravação (PlatformIO CLI)
@@ -534,7 +606,7 @@ document.addEventListener('DOMContentLoaded', atualizarDados);
 13 - Refatorar o código C++ aplicando **Programação Orientada a Objetos (POO)** com classes dedicadas (`DisplayManager`, `WebServerManager`, `SensorManager`).
 14 - Suporte a múltiplos transmissores.
 15 - Sistema de verificação de tensão e corrente com sensor sct-013 com bias ou ofset (usando entrada analógica ADC-Analog to Digital Converter).
-        Definir 3 estados de verificação, desligado->corrente 0, normal, falha->corrente muito abaixo ou muito acima, objetivo é verificar não só liga/desliga, mas também aparelhos com mal funcionamento.
+Definir 3 estados de verificação, desligado->corrente 0, normal, falha->corrente muito abaixo ou muito acima, objetivo é verificar não só liga/desliga, mas também aparelhos com mal funcionamento.
 16 - Sistema de filtro de registro de dados em banco sql, para não registrar cada segundo de verificação.
 17 - Implementar sistema com POO de forma a facilitar o recurso de instalação de novas unidades e código organizado e reutilizavel.
 
@@ -549,6 +621,7 @@ document.addEventListener('DOMContentLoaded', atualizarDados);
 
 ## 8.1 Lista de commits com descrições e respectivas datas
 
+- Date: Mon Jul 27 12:49:25 2026 atualização de documentação
 - Date: Sun Jul 26 22:18:42 2026 botaoHTML_AionaAquecedor30seg/retornoEnergiaConfirmaAcionamentoAcendeBolinhaHTML
 - Date: Sat Jul 25 17:39:53 2026 Adição de documento resumo projeto
 - Date: Sat Jul 25 17:13:46 2026 adiciona serv web assincrono com LittleFs (html,css,js)

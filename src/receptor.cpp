@@ -12,6 +12,9 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 AsyncWebServer server(80);
 
+const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
+const float TEMPERATURA_DESLIGA_EXAUSTAO = 28.0;
+
 uint8_t macEmissor[] = {0xA0, 0xDD, 0x6C, 0x75, 0x0E, 0x14}; // MAC do Emissor
 
 // Struct idêntica à do Emissor
@@ -20,15 +23,18 @@ typedef struct struct_mensagem {
     float temperatura;
     float umidade;
     bool energiaOk;
+    bool exaustaoOK;
 } struct_mensagem;
 
 typedef struct struct_comando {
     bool acionarAquecedor;
+    bool ligarExaustao;
 } struct_comando;
 
 struct_mensagem dadosRecebidos;
 struct_comando comandoEnvio;
 esp_now_peer_info_t peerInfo;
+bool exaustaoLigada = false;
 
 void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     if (len == sizeof(dadosRecebidos)) {
@@ -49,6 +55,33 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
         display.print("Pacote: #");
         display.println(dadosRecebidos.contador);
         display.display();
+
+        if (!exaustaoLigada && dadosRecebidos.temperatura >= TEMPERATURA_LIGA_EXAUSTAO)
+        {
+            exaustaoLigada = true;
+
+            comandoEnvio.acionarAquecedor = false;
+            comandoEnvio.ligarExaustao = true;
+
+            esp_now_send(macEmissor,
+                         (uint8_t *)&comandoEnvio,
+                         sizeof(comandoEnvio));
+
+            Serial.println("Sistema de Exaustao LIGADO");
+        }
+        if (exaustaoLigada && dadosRecebidos.temperatura <= TEMPERATURA_DESLIGA_EXAUSTAO)
+        {
+            exaustaoLigada = false;
+
+            comandoEnvio.acionarAquecedor = false;
+            comandoEnvio.ligarExaustao = false;
+
+            esp_now_send(macEmissor,
+                        (uint8_t *)&comandoEnvio,
+                        sizeof(comandoEnvio));
+
+            Serial.println("Sistema de Exaustao DESLIGADO");
+        }
     }
 }
 
@@ -93,6 +126,8 @@ void setup() {
         json += "\"umidade\":" + String(h, 1) + ",";
         json += "\"contador\":" + String(dadosRecebidos.contador) + ",";
         json += "\"energia_ok\":" + String(dadosRecebidos.energiaOk ? "true" : "false");
+        json += ",\"exaustao_ligada\":" + String(exaustaoLigada ? "true" : "false");
+        json += ",\"exaustao_ok\":" + String(dadosRecebidos.exaustaoOK ? "true" : "false");
         json += "}";
     
         request->send(200, "application/json", json);
