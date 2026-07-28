@@ -1,5 +1,7 @@
 Diário de dificuldades encontradas:
 
+27/07/26: Implementação de sistema de exaustao automatico que liga e desliga automaticamente conforme temperatura, e tem um retorno de sinal na GPIO35 que indica o funcionamento através de um led digital html no site. A dificuldade foi lidar com a IA, que fica limitada conforme vamos usando e tem um momento de bloqueio, e quando volta, é bastante fraca. Este limite de uso gratuito é bem mais elastico no gemini e restritivo no chatgpt.
+
 27/07/26: Comprei no MercadoLivre:
           Duas unidades de sensor de corrente não invasivo 100A Sct-013 R$94,80
           Kit 10 placas prototipo de fenolite 5x7cm perfurada R$19,00
@@ -29,4 +31,5 @@ Diário de dificuldades encontradas:
 1 - Criar comunicação simples apenas transmitindo contador de envio de pacotes a cada 1seg
 2 - Inserir DHT11 fornecendo temperatura e umidade em ambos visores (emissor, receptor)
 3 - Implementar site no receptor (LittleFS), para acesso e visualização de dados DHT11 via roteador esp32
-4 - Implementar site: botão que aciona porta GPIO23 emissor por 30seg e led virtual que acende 30seg com retorno de GPIO23 em GPIO34 
+4 - Implementar site: botão que aciona porta GPIO23 emissor por 30seg e led virtual que acende 30seg com retorno de GPIO23 em GPIO34
+5 - Acionamento auto ventilador se temperatura >28.0 e desl auto <28.0, com retorno indicando funcionamento no html pelo GPIO35

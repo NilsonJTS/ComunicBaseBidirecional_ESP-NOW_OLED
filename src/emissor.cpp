@@ -85,15 +85,14 @@ void setup() {
     pinMode(PINO_RETORNO_EXAUASTAO, INPUT);
 
     WiFi.mode(WIFI_STA);
-
     esp_wifi_set_promiscuous(true);
-    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    esp_wifi_set_channel(11, WIFI_SECOND_CHAN_NONE);
     esp_wifi_set_promiscuous(false);
 
     if (esp_now_init() == ESP_OK) {
         esp_now_register_recv_cb(AoReceberComando);
         memcpy(peerInfo.peer_addr, macReceptor, 6);
-        peerInfo.channel = 1;
+        peerInfo.channel = 11;
         peerInfo.encrypt = false;
         esp_now_add_peer(&peerInfo);
     }

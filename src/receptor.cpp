@@ -12,6 +12,7 @@
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 AsyncWebServer server(80);
 
+int canalRoteador = 1;
 const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
 const float TEMPERATURA_DESLIGA_EXAUSTAO = 28.0;
 
@@ -87,22 +88,65 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 
 void setup() {
     Serial.begin(115200);
+    delay(1000); // Tempo para estabilizar a Serial
+
     Wire.begin(21, 22);
     display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
     display.setTextColor(WHITE);
     display.setTextSize(1);
+    
+    display.clearDisplay();
+    display.setCursor(0, 0);
+    display.println("Conectando Wi-Fi...");
+    display.display();
 
     if (!LittleFS.begin(true)) {
         Serial.println("Erro ao montar o LittleFS!");
     }
 
+    // Tenta conectar no Wi-Fi Residencial
     WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("ESP32_Estacao", "12345678", 1);
+    WiFi.begin("NILSON 2.4", "81111270in"); // Mantido exatamente como no documento
+    
+    int tentativas = 0;
+    while (WiFi.status() != WL_CONNECTED && tentativas < 20) {
+        delay(500);
+        Serial.print(".");
+        tentativas++;
+    }
+
+    display.clearDisplay();
+    display.setCursor(0, 0);
+
+    if (WiFi.status() == WL_CONNECTED) {
+        canalRoteador = WiFi.channel();
+
+        Serial.println("\n>>> WiFi conectado <<<");
+        Serial.print("IP Receptor: ");
+        Serial.println(WiFi.localIP());
+        Serial.print("Canal WiFi Roteador: ");
+        Serial.println(canalRoteador);
+
+        // Exibe IP e Canal no OLED
+        display.println("WIFI CONECTADO!");
+        display.setCursor(0, 16);
+        display.print("IP: ");
+        display.println(WiFi.localIP());
+        display.setCursor(0, 32);
+        display.print("Canal: ");
+        display.println(canalRoteador);
+    } else {
+        Serial.println("\n[ERRO] Falha ao conectar no Wi-Fi!");
+        display.println("FALHA NO WI-FI!");
+        display.setCursor(0, 16);
+        display.println("Verifique SSID/Senha");
+    }
+    display.display();
 
     if (esp_now_init() == ESP_OK) {
         esp_now_register_recv_cb(AoReceber);
         memcpy(peerInfo.peer_addr, macEmissor, 6);
-        peerInfo.channel = 1;
+        peerInfo.channel = canalRoteador;
         peerInfo.encrypt = false;
         esp_now_add_peer(&peerInfo);
     }
@@ -134,14 +178,14 @@ void setup() {
     });
 
     server.on("/ligar-aquecedor", HTTP_POST, [](AsyncWebServerRequest *request) {
-    comandoEnvio.acionarAquecedor = true;
-    esp_err_t result = esp_now_send(macEmissor, (uint8_t *)&comandoEnvio, sizeof(comandoEnvio));
-    
-    if (result == ESP_OK) {
-        request->send(200, "text/plain", "Comando enviado com sucesso");
-    } else {
-        request->send(500, "text/plain", "Erro ao enviar via ESP-NOW");
-    }
+        comandoEnvio.acionarAquecedor = true;
+        esp_err_t result = esp_now_send(macEmissor, (uint8_t *)&comandoEnvio, sizeof(comandoEnvio));
+        
+        if (result == ESP_OK) {
+            request->send(200, "text/plain", "Comando enviado com sucesso");
+        } else {
+            request->send(500, "text/plain", "Erro ao enviar via ESP-NOW");
+        }
     });
 
     server.begin();

@@ -36,6 +36,8 @@ Desenvolvimento de um sistema de monitoramento de sensores distribuído utilizan
   - Multimetro simples de uso geral para medições de componentes, continuidade e Vac Vdc
   - Roteador Wi-Fi residencial `NILSON 2.4`
   - Senha `81111270in`
+  - IP da primeira transmissão `192.168.15.84` observar para ver se mantém, se preciso, aprender a fixar um ip.
+  - Canal de transmissão `11`
   - Assinatura Hostgator M anual
 
 ---
@@ -109,304 +111,11 @@ https://github.com/me-no-dev/AsyncTCP.git
 
 ### 5.2. `src/emissor.cpp`
 
-#include <esp_now.h>
-#include <esp_wifi.h>
-#include <WiFi.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <DHT.h>
-
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-#define DHTPIN 4
-#define DHTTYPE DHT11
-DHT dht(DHTPIN, DHTTYPE);
-
-#define PINO_AQUECEDOR 23
-#define PINO_EXAUSTAO 18
-#define PINO_RETORNO_ENERGIA 34
-#define PINO_RETORNO_EXAUASTAO 35
-
-unsigned long tempoInicioAquecedor = 0;
-bool aquecedorAtivo = false;
-const unsigned long DURACAO_AQUECEDOR = 30000; // 30s
-
-uint8_t macReceptor[] = {0xA0, 0xDD, 0x6C, 0x67, 0xC6, 0x34}; // MAC do Receptor
-
-typedef struct struct_mensagem {
-    int contador;
-    float temperatura;
-    float umidade;
-    bool energiaOk;
-    bool exaustaoOK;
-} struct_mensagem;
-
-typedef struct struct_comando {
-    bool acionarAquecedor;
-    bool ligarExaustao;
-} struct_comando;
-
-struct_mensagem dadosEnvio;
-struct_comando comandoRecebido;
-esp_now_peer_info_t peerInfo;
-
-int contadorPacotes = 0;
-unsigned long ultimoEnvio = 0;
-
-void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
-    memcpy(&comandoRecebido, incomingData, sizeof(comandoRecebido));
-
-    if (comandoRecebido.acionarAquecedor){
-        digitalWrite(PINO_AQUECEDOR, HIGH);
-        aquecedorAtivo = true;
-        tempoInicioAquecedor = millis();
-        Serial.println(">>> Aquecedor Ligado via ESP-NOW! <<<");
-    }
-
-    digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
-}
-
-void setup() {
-    Serial.begin(115200);
-    
-    // Inicialização do OLED no Emissor
-    Wire.begin(21, 22);
-    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-    display.setTextColor(WHITE);
-    display.setTextSize(1);
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("PLACA A (EMISSOR)");
-    display.display();
-
-    // Configuração e inicialização do DHT11
-    pinMode(DHTPIN, INPUT_PULLUP);
-    dht.begin();
-    delay(2000); // Estabilização do sensor
-
-    pinMode(PINO_AQUECEDOR, OUTPUT);
-    digitalWrite(PINO_AQUECEDOR, LOW);
-    pinMode(PINO_RETORNO_ENERGIA, INPUT);
-
-    pinMode(PINO_EXAUSTAO, OUTPUT);
-    digitalWrite(PINO_EXAUSTAO, LOW);
-    pinMode(PINO_RETORNO_EXAUASTAO, INPUT);
-
-    WiFi.mode(WIFI_STA);
-
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
-    esp_wifi_set_promiscuous(false);
-
-    if (esp_now_init() == ESP_OK) {
-        esp_now_register_recv_cb(AoReceberComando);
-        memcpy(peerInfo.peer_addr, macReceptor, 6);
-        peerInfo.channel = 1;
-        peerInfo.encrypt = false;
-        esp_now_add_peer(&peerInfo);
-    }
-}
-
-void loop() {
-    // Desligamento automático temporizado
-    if (aquecedorAtivo && (millis() - tempoInicioAquecedor >= DURACAO_AQUECEDOR)) {
-        digitalWrite(PINO_AQUECEDOR, LOW);
-        aquecedorAtivo = false;
-    }
-
-    if (millis() - ultimoEnvio >= 2000) {
-        ultimoEnvio = millis();
-
-        float temp = dht.readTemperature();
-        float umid = dht.readHumidity();
-
-        if (!isnan(temp) && !isnan(umid)) {
-            dadosEnvio.temperatura = temp;
-            dadosEnvio.umidade = umid;
-        }
-
-        contadorPacotes++;
-        dadosEnvio.contador = contadorPacotes;
-        dadosEnvio.energiaOk = digitalRead(PINO_RETORNO_ENERGIA);
-        dadosEnvio.exaustaoOK = digitalRead(PINO_RETORNO_EXAUASTAO);
-
-        // Atualização do Display OLED local no Emissor
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("PLACA A (EMISSOR)");
-        display.setCursor(0, 16);
-        display.print("Temp: ");
-        display.print(dadosEnvio.temperatura, 1);
-        display.println(" C");
-        display.setCursor(0, 32);
-        display.print("Umid: ");
-        display.print(dadosEnvio.umidade, 1);
-        display.println(" %");
-        display.setCursor(0, 48);
-        display.print("Pacote enviado: #");
-        display.println(dadosEnvio.contador);
-        display.display();
-
-        esp_now_send(macReceptor, (uint8_t *)&dadosEnvio, sizeof(dadosEnvio));
-    }
-}
+colar aqui
 
 ### 5.3. `src/receptor.cpp`
 
-#include <esp_now.h>
-#include <WiFi.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
-#include <Arduino.h>
-#include <ESPAsyncWebServer.h>
-#include <LittleFS.h>
-
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-AsyncWebServer server(80);
-
-const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
-const float TEMPERATURA_DESLIGA_EXAUSTAO = 28.0;
-
-uint8_t macEmissor[] = {0xA0, 0xDD, 0x6C, 0x75, 0x0E, 0x14}; // MAC do Emissor
-
-// Struct idêntica à do Emissor
-typedef struct struct_mensagem {
-    int contador;
-    float temperatura;
-    float umidade;
-    bool energiaOk;
-    bool exaustaoOK;
-} struct_mensagem;
-
-typedef struct struct_comando {
-    bool acionarAquecedor;
-    bool ligarExaustao;
-} struct_comando;
-
-struct_mensagem dadosRecebidos;
-struct_comando comandoEnvio;
-esp_now_peer_info_t peerInfo;
-bool exaustaoLigada = false;
-
-void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
-    if (len == sizeof(dadosRecebidos)) {
-        memcpy(&dadosRecebidos, incomingData, sizeof(dadosRecebidos));
-        
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("PLACA B (RECEPTOR)");
-        display.setCursor(0, 16);
-        display.print("Temp: ");
-        display.print(dadosRecebidos.temperatura, 1);
-        display.println(" C");
-        display.setCursor(0, 32);
-        display.print("Umid: ");
-        display.print(dadosRecebidos.umidade, 1);
-        display.println(" %");
-        display.setCursor(0, 48);
-        display.print("Pacote: #");
-        display.println(dadosRecebidos.contador);
-        display.display();
-
-        if (!exaustaoLigada && dadosRecebidos.temperatura >= TEMPERATURA_LIGA_EXAUSTAO)
-        {
-            exaustaoLigada = true;
-
-            comandoEnvio.acionarAquecedor = false;
-            comandoEnvio.ligarExaustao = true;
-
-            esp_now_send(macEmissor,
-                         (uint8_t *)&comandoEnvio,
-                         sizeof(comandoEnvio));
-
-            Serial.println("Sistema de Exaustao LIGADO");
-        }
-        if (exaustaoLigada && dadosRecebidos.temperatura <= TEMPERATURA_DESLIGA_EXAUSTAO)
-        {
-            exaustaoLigada = false;
-
-            comandoEnvio.acionarAquecedor = false;
-            comandoEnvio.ligarExaustao = false;
-
-            esp_now_send(macEmissor,
-                        (uint8_t *)&comandoEnvio,
-                        sizeof(comandoEnvio));
-
-            Serial.println("Sistema de Exaustao DESLIGADO");
-        }
-    }
-}
-
-void setup() {
-    Serial.begin(115200);
-    Wire.begin(21, 22);
-    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-    display.setTextColor(WHITE);
-    display.setTextSize(1);
-
-    if (!LittleFS.begin(true)) {
-        Serial.println("Erro ao montar o LittleFS!");
-    }
-
-    WiFi.mode(WIFI_AP_STA);
-    WiFi.softAP("ESP32_Estacao", "12345678", 1);
-
-    if (esp_now_init() == ESP_OK) {
-        esp_now_register_recv_cb(AoReceber);
-        memcpy(peerInfo.peer_addr, macEmissor, 6);
-        peerInfo.channel = 1;
-        peerInfo.encrypt = false;
-        esp_now_add_peer(&peerInfo);
-    }
-
-    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(LittleFS, "/index.html", "text/html");
-    });
-    server.on("/style.css", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(LittleFS, "/style.css", "text/css");
-    });
-    server.on("/script.js", HTTP_GET, [](AsyncWebServerRequest *request) {
-        request->send(LittleFS, "/script.js", "text/javascript");
-    });
-
-    server.on("/dados", HTTP_GET, [](AsyncWebServerRequest *request) {
-        float t = isnan(dadosRecebidos.temperatura) ? 0.0 : dadosRecebidos.temperatura;
-        float h = isnan(dadosRecebidos.umidade) ? 0.0 : dadosRecebidos.umidade;
-
-        String json = "{";
-        json += "\"temperatura\":" + String(t, 1) + ",";
-        json += "\"umidade\":" + String(h, 1) + ",";
-        json += "\"contador\":" + String(dadosRecebidos.contador) + ",";
-        json += "\"energia_ok\":" + String(dadosRecebidos.energiaOk ? "true" : "false");
-        json += ",\"exaustao_ligada\":" + String(exaustaoLigada ? "true" : "false");
-        json += ",\"exaustao_ok\":" + String(dadosRecebidos.exaustaoOK ? "true" : "false");
-        json += "}";
-    
-        request->send(200, "application/json", json);
-    });
-
-    server.on("/ligar-aquecedor", HTTP_POST, [](AsyncWebServerRequest *request) {
-    comandoEnvio.acionarAquecedor = true;
-    esp_err_t result = esp_now_send(macEmissor, (uint8_t *)&comandoEnvio, sizeof(comandoEnvio));
-    
-    if (result == ESP_OK) {
-        request->send(200, "text/plain", "Comando enviado com sucesso");
-    } else {
-        request->send(500, "text/plain", "Erro ao enviar via ESP-NOW");
-    }
-    });
-
-    server.begin();
-}
-
-void loop() {
-}
+colar aqui
 
 ### 5.4. Arquivos da Pasta `data/`
 #### `data/index.html`
@@ -595,20 +304,26 @@ document.addEventListener('DOMContentLoaded', atualizarDados);
 
 ## 7. Próximos Passos
 
-5 - inserção de código para acionamento de ventilador, caso a temperatura ultrapasse um limite determinado, e desligue quando chegar à temp determinada
 6 - criação de um banco de dados sql no provedor hostgator
 7 - inserção de dados automaticamente (hora/temperatura/umidade) no banco de dados com PHP
-8 - inserção de site para acesso global na hostgator tão simples quanto o site do LittleFS
+8 - inserção de site para acesso global na hostgator, tão simples quanto o site do LittleFS
 9 - inserção de logo e relatorio de dados do banco sql no site
+9.1 - Transição de rádio: Migrar a comunicação entre Emissor e Receptor de:
+        protocolo ESP-NOW 2,4GHz para a biblioteca nativa do chip LoRa SX127x 915MHz, mantendo o Wi-Fi do Receptor dedicado apenas à internet.
 10 - teste de campo para verificação de funcionamento à distancia com powerbank alimentando o receptor, e teste via internet com smartfone
 11 - configurar nova unidade esp32 LyLigo oled (que ainda será adquirida) para servir de gateway e aumentar alcance
 12 - definir todas as necessidades de aplicações com seus respectivos sensores (apenas quando todos os passos anteriores forem consolidados)
-13 - Refatorar o código C++ aplicando **Programação Orientada a Objetos (POO)** com classes dedicadas (`DisplayManager`, `WebServerManager`, `SensorManager`).
+13 - Refatorar o código C++ aplicando **Programação Orientada a Objetos (POO)** com classes dedicadas.
+        (`DisplayManager`, `WebServerManager`, `SensorManager`).
 14 - Suporte a múltiplos transmissores.
 15 - Sistema de verificação de tensão e corrente com sensor sct-013 com bias ou ofset (usando entrada analógica ADC-Analog to Digital Converter).
-Definir 3 estados de verificação, desligado->corrente 0, normal, falha->corrente muito abaixo ou muito acima, objetivo é verificar não só liga/desliga, mas também aparelhos com mal funcionamento.
-16 - Sistema de filtro de registro de dados em banco sql, para não registrar cada segundo de verificação.
-17 - Implementar sistema com POO de forma a facilitar o recurso de instalação de novas unidades e código organizado e reutilizavel.
+        Definir 3 estados de verificação, desligado->corrente 0, normal, falha->corrente muito abaixo ou muito acima, objetivo é verificar não só liga/desliga, mas também aparelhos com mal funcionamento.
+16 - Adquirir kit de baixo custo para nó emissor remoto composto por:
+        * Microcontrolador/LoRa: Placa ESP32 LoRa 915MHz sem OLED (ex: Wireless Stick Lite ou TTGO T-Beam).
+        * Alimentação Solar: Painel solar 5V (3W), carregador solar MPPT/TP4056, 1 x bateria Li-Ion 18650 (3,7V) e regulador LDO 3,3V.
+        * Proteção: Caixa estanque IP65 para testes e operação prolongada em ambiente externo.
+17 - Sistema de filtro de registro de dados em banco sql, para não registrar cada segundo de verificação.
+18 - Implementar sistema com POO de forma a facilitar o recurso de instalação de novas unidades e código organizado e reutilizavel.
 
 ---
 
@@ -621,6 +336,7 @@ Definir 3 estados de verificação, desligado->corrente 0, normal, falha->corren
 
 ## 8.1 Lista de commits com descrições e respectivas datas
 
+- Date: Mon Jul 27 23:07:33 2026 sistemaExaustaoComAcionamentoDesligamentoAutoIndicadorHTMLNoRetornoGPIO35
 - Date: Mon Jul 27 12:49:25 2026 atualização de documentação
 - Date: Sun Jul 26 22:18:42 2026 botaoHTML_AionaAquecedor30seg/retornoEnergiaConfirmaAcionamentoAcendeBolinhaHTML
 - Date: Sat Jul 25 17:39:53 2026 Adição de documento resumo projeto
