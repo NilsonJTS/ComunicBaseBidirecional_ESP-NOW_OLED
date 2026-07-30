@@ -16,6 +16,12 @@ git commit -m "mensagem aqui"
 git push
 git log //para ver historico de commits
 
+//dados de acesso ao banco de dados hostgator
+$servername = "localhost";           // local fisico do DB
+$username   = "estude43_userNilson"; // usuário com liberdade total
+$password   = "GjTX@@jqyD@E";        // senha
+$dbname     = "estude43_estacao_db"; // nome do banco
+
 //pesquisar!
 protocolos industriais para transmissão de tensão em controladores por dezenas de metros
 RS-485

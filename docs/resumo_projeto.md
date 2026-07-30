@@ -39,6 +39,11 @@ Desenvolvimento de um sistema de monitoramento de sensores distribuído utilizan
   - IP da primeira transmissão `192.168.15.84` observar para ver se mantém, se preciso, aprender a fixar um ip.
   - Canal de transmissão `11`
   - Assinatura Hostgator M anual
+  **Conexão / DB hostgator**
+  - $servername = "localhost";           // local fisico do DB
+  - $username   = "estude43_userNilson"; // usuário com liberdade total
+  - $password   = "GjTX@@jqyD@E";        // senha
+  - $dbname     = "estude43_estacao_db"; // nome do banco
 
 ---
 
@@ -64,10 +69,18 @@ Desenvolvimento de um sistema de monitoramento de sensores distribuído utilizan
 
 MEU_PROJETO/
 ├── platformio.ini # Configuração dos ambientes emissor e receptor
+│
 ├── data/ # Arquivos do Servidor Web (LittleFS - Receptor)
 │ ├── index.html # Estrutura HTML
 │ ├── style.css # Estilo visual
 │ └── script.js # Atualização dinâmica (AJAX fetch)
+│
+├── docs/ # Arquivos de documentação e codigos externos complementares 
+│ ├── anotacoesNilson.md
+│ ├── leituras_sensores.sql // criação de bando sql no hostgator
+│ ├── resumo_projeto.md // documento completo de documentação projeto
+│ └── salvar_dados.php // codigo de recepção de dados e create em leituras_sensores
+│
 └── src/
 ├── emissor.cpp # Código leve: Leitura do DHT11 + Envio ESP-NOW
 └── receptor.cpp # Código Central: ESP-NOW + OLED + WebServer + LittleFS
@@ -120,174 +133,9 @@ colar aqui
 ### 5.4. Arquivos da Pasta `data/`
 #### `data/index.html`
 
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Painel ESP32</title>
-    <link rel="stylesheet" type="text/css" href="style.css">
-    <script src="script.js" defer></script>
-</head>
-<body>
-    <h1>Estação de Sensores</h1>
-    
-    <div class="card">
-        <p>Temperatura</p>
-        <div class="valor"><span id="temp">--</span> °C</div>
-    </div>
-    
-    <div class="card">
-        <p>Umidade</p>
-        <div class="valor"><span id="umid">--</span> %</div>
-    </div>
-    
-    <div class="card">
-        <h3>Controle do Aquecedor</h3>
-        <button id="btnAquecedor" onclick="acionarAquecedor()">Ligar Aquecedor (30s)</button>
-        <div class="status-container">
-            <span>Retorno de Energia:</span>
-            <span id="ledStatus" class="led desligado"></span>
-        </div>
-    </div>
-
-    <div class="card">
-        <h3>Sistema de Exaustão</h3>
-        <span>Estado:</span>
-        <span id="ledExaustao" class="led desligado"></span>
-        <span id="textoExaustao">Desligado</span>
-    </div>
-
-    <p>Pacotes recebidos: <b id="contador">0</b></p>
-</body>
-</html>
-
 #### `data/style.css`
 
-body {
-    font-family: Arial, sans-serif;
-    text-align: center;
-    margin-top: 30px;
-    background-color: #f4f4f9;
-}
-h1 {
-    color: #333;
-}
-.card {
-    background: white;
-    padding: 20px;
-    margin: 10px auto;
-    width: 260px;
-    border-radius: 10px;
-    box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-}
-.valor {
-    font-size: 2em;
-    color: #007bff;
-    font-weight: bold;
-}
-button {
-    background-color: #28a745;
-    color: white;
-    border: none;
-    padding: 12px 20px;
-    font-size: 1em;
-    border-radius: 5px;
-    cursor: pointer;
-    transition: 0.3s;
-}
-button:disabled {
-    background-color: #6c757d;
-    cursor: not-allowed;
-}
-.status-container {
-    margin-top: 15px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 10px;
-}
-.led {
-    width: 16px;
-    height: 16px;
-    border-radius: 50%;
-    display: inline-block;
-    background-color: #ccc;
-}
-.led.ligado {
-    background-color: #dc3545; /* Bolinha vermelha quando ativado */
-    box-shadow: 0 0 8px #dc3545;
-}
-.led.desligado {
-    background-color: #6c757d;
-}
-
 #### `data/script.js`
-
-function atualizarDados() {
-
-    const ledExaustao = document.getElementById('ledExaustao');
-    const textoExaustao = document.getElementById('textoExaustao');
-
-    fetch('/dados?t=' + new Date().getTime(), { cache: 'no-store' })
-        .then(response => {
-            if (!response.ok) throw new Error('Erro na resposta');
-            return response.json();
-        })
-        .then(data => {
-            // Atualiza os valores na tela
-            document.getElementById('temp').innerText = data.temperatura;
-            document.getElementById('umid').innerText = data.umidade;
-            document.getElementById('contador').innerText = data.contador;
-            
-            // Atualiza o LED de retorno de energia
-            const led = document.getElementById('ledStatus');
-            if (data.energia_ok) {
-                led.className = 'led ligado';
-            } else {
-                led.className = 'led desligado';
-            }
-        
-             if (data.exaustao_ok) {
-            ledExaustao.className = "led ligado";
-            textoExaustao.innerText = "Ligado";
-            }else{
-                ledExaustao.className = "led desligado";
-                textoExaustao.innerText = "Desligado";
-            }
-        
-        })
-        .catch(err => console.log('Aguardando dados...:', err));
-}
-
-
-function acionarAquecedor() {
-    const btn = document.getElementById('btnAquecedor');
-    if (btn) btn.disabled = true;
-
-    fetch('/ligar-aquecedor', { 
-        method: 'POST',
-        cache: 'no-store'
-    })
-    .then(response => {
-        console.log('Comando enviado com sucesso');
-        // Força uma atualização imediata do painel após o clique
-        atualizarDados();
-    })
-    .catch(err => console.log('Erro ao acionar:', err))
-    .finally(() => {
-        // Reabilita o botão após 1 segundo
-        setTimeout(() => {
-            if (btn) btn.disabled = false;
-        }, 1000);
-    });
-}
-
-// Garante o loop contínuo de atualização a cada 2 segundos
-setInterval(atualizarDados, 2000);
-
-// Executa a primeira leitura assim que a página carrega
-document.addEventListener('DOMContentLoaded', atualizarDados);
 
 ---
 
@@ -304,8 +152,6 @@ document.addEventListener('DOMContentLoaded', atualizarDados);
 
 ## 7. Próximos Passos
 
-6 - criação de um banco de dados sql no provedor hostgator
-7 - inserção de dados automaticamente (hora/temperatura/umidade) no banco de dados com PHP
 8 - inserção de site para acesso global na hostgator, tão simples quanto o site do LittleFS
 9 - inserção de logo e relatorio de dados do banco sql no site
 9.1 - Transição de rádio: Migrar a comunicação entre Emissor e Receptor de:
@@ -336,6 +182,7 @@ document.addEventListener('DOMContentLoaded', atualizarDados);
 
 ## 8.1 Lista de commits com descrições e respectivas datas
 
+- Date: Tue Jul 28 12:22:20 2026 MiracaoReceptorParaModoSTA(WiFi residencia)canal11_IPdinamicoEintegraçãoESP-NOWcomEmissor
 - Date: Mon Jul 27 23:07:33 2026 sistemaExaustaoComAcionamentoDesligamentoAutoIndicadorHTMLNoRetornoGPIO35
 - Date: Mon Jul 27 12:49:25 2026 atualização de documentação
 - Date: Sun Jul 26 22:18:42 2026 botaoHTML_AionaAquecedor30seg/retornoEnergiaConfirmaAcionamentoAcendeBolinhaHTML

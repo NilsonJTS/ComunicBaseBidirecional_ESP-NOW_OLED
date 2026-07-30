@@ -6,11 +6,14 @@
 #include <Arduino.h>
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
+#include <HTTPClient.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 AsyncWebServer server(80);
+
+volatile bool enviarHostgator = false;
 
 int canalRoteador = 1;
 const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
@@ -36,6 +39,54 @@ struct_mensagem dadosRecebidos;
 struct_comando comandoEnvio;
 esp_now_peer_info_t peerInfo;
 bool exaustaoLigada = false;
+
+#include <WiFiClientSecure.h>
+#include <HTTPClient.h>
+
+void enviarParaHostgator() {
+    if (WiFi.status() == WL_CONNECTED) {
+        WiFiClientSecure client;
+        client.setInsecure(); // Ignora validação do certificado SSL
+
+        HTTPClient http;
+        
+        if (http.begin(client, "https://estudecertoja.com.br/salvar_dados.php")) {
+            http.addHeader("Content-Type", "application/json");
+           
+            float t = isnan(dadosRecebidos.temperatura) ? 0.0 : dadosRecebidos.temperatura;
+            float h = isnan(dadosRecebidos.umidade) ? 0.0 : dadosRecebidos.umidade;
+
+            String jsonPayload = "{";
+            jsonPayload += "\"estacao_id\":\"ESTACAO_01\",";
+            jsonPayload += "\"temperatura\":" + String(t, 1) + ",";
+            jsonPayload += "\"umidade\":" + String(h, 1) + ",";
+            jsonPayload += "\"contador\":" + String(dadosRecebidos.contador) + ",";
+            jsonPayload += "\"energia_ok\":" + String(dadosRecebidos.energiaOk ? "true" : "false") + ",";
+            jsonPayload += "\"exaustao_ligada\":" + String(exaustaoLigada ? "true" : "false") + ",";
+            jsonPayload += "\"exaustao_ok\":" + String(dadosRecebidos.exaustaoOK ? "true" : "false") + ",";
+            jsonPayload += "\"aquecedor_ligado\":" + String(comandoEnvio.acionarAquecedor ? "true" : "false");
+            jsonPayload += "}";
+
+            int httpResponseCode = http.POST(jsonPayload);
+
+            Serial.print(">>> RESPOSTA HOSTGATOR (HTTP): ");
+            Serial.println(httpResponseCode);
+
+            if (httpResponseCode > 0) {
+                String response = http.getString();
+                Serial.print("Resposta do Servidor: ");
+                Serial.println(response);
+            } else {
+                Serial.print("[ERRO HTTP] Motivo: ");
+                Serial.println(http.errorToString(httpResponseCode).c_str());
+            }
+
+            http.end();
+        } else {
+            Serial.println("[ERRO] Nao foi possivel iniciar a conexao HTTPS");
+        }
+    }
+}
 
 void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     if (len == sizeof(dadosRecebidos)) {
@@ -83,6 +134,9 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
 
             Serial.println("Sistema de Exaustao DESLIGADO");
         }
+
+        enviarHostgator = true;
+
     }
 }
 
@@ -191,5 +245,11 @@ void setup() {
     server.begin();
 }
 
-void loop() {
+void loop() 
+{
+    if (enviarHostgator)
+    {
+        enviarHostgator = false;
+        enviarParaHostgator();
+    }
 }
