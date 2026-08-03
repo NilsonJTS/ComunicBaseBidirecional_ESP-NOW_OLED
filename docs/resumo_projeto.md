@@ -44,6 +44,7 @@ Desenvolvimento de um sistema de monitoramento de sensores distribuído utilizan
   - $username   = "estude43_userNilson"; // usuário com liberdade total
   - $password   = "GjTX@@jqyD@E";        // senha
   - $dbname     = "estude43_estacao_db"; // nome do banco
+  - Tabela      = "leituras_sensores"
 
 ---
 
@@ -175,10 +176,16 @@ colar aqui
 
 ## 8. Informações gerais de parametros para IA auxiliar
 
-- respostas diretas e sem abstrações.
-- cada fase, e cada passo deve ser respeitado, só passamos adiante depois de: funcionamento confirmado, commit local e nuvem, incrementação de documentação do projeto.
-- quando indicar o passo a passo de ligações eletrônicas, pode ser uma lista de itens curtos, pois tenho maior domínio.
-- manter os números dos pinos descritos nos códigos, ou, avisar quando precisar redefinir algum em nova versão de código.
+Continue a orientação no seguinte formato:
+- respostas diretas;
+- sem elogios ou introduções;
+- condução em fases pequenas e sequenciais;
+- uma alteração por vez;
+- não despejar várias possibilidades simultaneamente;
+- explicar apenas o necessário para eu entender a etapa atual;
+- evitar método socrático neste projeto;
+- eu quero entender a arquitetura e as decisões, mas não preciso de uma aula completa a cada passo;
+- sempre aguardar a confirmação de funcionamento antes de avançar.
 
 ## 8.1 Lista de commits com descrições e respectivas datas
 

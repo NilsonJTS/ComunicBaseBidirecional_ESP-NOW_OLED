@@ -5,6 +5,8 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include <DHT.h>
+#include <SPI.h>
+#include <LoRa.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -15,7 +17,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 DHT dht(DHTPIN, DHTTYPE);
 
 #define PINO_AQUECEDOR 23
-#define PINO_EXAUSTAO 18
+#define PINO_EXAUSTAO 25
 #define PINO_RETORNO_ENERGIA 34
 #define PINO_RETORNO_EXAUASTAO 35
 
@@ -48,18 +50,52 @@ unsigned long ultimoEnvio = 0;
 void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
     memcpy(&comandoRecebido, incomingData, sizeof(comandoRecebido));
 
+    //---imprime serial confirma recebimento comando do db comandos
+    Serial.println("=== COMANDO RECEBIDO ===");
+    Serial.print("Aquecedor: ");
+    Serial.println(comandoRecebido.acionarAquecedor);
+
+    Serial.print("Exaustao: ");
+    Serial.println(comandoRecebido.ligarExaustao);
+    //--------------------------------------------------------
+
     if (comandoRecebido.acionarAquecedor){
         digitalWrite(PINO_AQUECEDOR, HIGH);
+        
+        //diagnostico botão, deletar
+        Serial.print("GPIO aquecedor apos HIGH = ");
+        Serial.println(digitalRead(PINO_AQUECEDOR));
+
         aquecedorAtivo = true;
         tempoInicioAquecedor = millis();
         Serial.println(">>> Aquecedor Ligado via ESP-NOW! <<<");
+        //diagnostico ligamento:
+        Serial.print("aquecedorAtivo = ");
+        Serial.println(aquecedorAtivo);
+        Serial.print("tempoInicioAquecedor = ");
+        Serial.println(tempoInicioAquecedor);
+        //-----
     }
-
+    Serial.print("Comando Exaustao recebido: ");
+    Serial.println(comandoRecebido.ligarExaustao);
     digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
 }
 
+#define LORA_SS    18
+#define LORA_RST   14
+#define LORA_DIO0  26
+
 void setup() {
     Serial.begin(115200);
+
+    SPI.begin(5, 19, 27, 18);
+    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+    if (!LoRa.begin(915E6))
+    {
+        Serial.println("Falha ao iniciar LoRa");
+        while (true);
+    }
+    Serial.println("LoRa iniciado com sucesso");
     
     // Inicialização do OLED no Emissor
     Wire.begin(21, 22);
@@ -77,7 +113,22 @@ void setup() {
     delay(2000); // Estabilização do sensor
 
     pinMode(PINO_AQUECEDOR, OUTPUT);
+
+    //diagnostico deletar
+    Serial.println("GPIO33 = HIGH"); 
+    digitalWrite(PINO_AQUECEDOR, HIGH);
+    delay(5000);
+    Serial.print("Leitura GPIO33: ");
+    Serial.println(digitalRead(PINO_AQUECEDOR));
+    Serial.println("GPIO33 = LOW");
     digitalWrite(PINO_AQUECEDOR, LOW);
+    //---
+
+    //diagnostico botão, deletar
+    Serial.print("Teste inicial GPIO aquecedor: ");
+    Serial.println(digitalRead(PINO_AQUECEDOR));
+    //---
+
     pinMode(PINO_RETORNO_ENERGIA, INPUT);
 
     pinMode(PINO_EXAUSTAO, OUTPUT);
@@ -99,8 +150,12 @@ void setup() {
 }
 
 void loop() {
+    
     // Desligamento automático temporizado
     if (aquecedorAtivo && (millis() - tempoInicioAquecedor >= DURACAO_AQUECEDOR)) {
+
+        Serial.println(">>> DESLIGAMENTO AUTOMATICO <<<");
+
         digitalWrite(PINO_AQUECEDOR, LOW);
         aquecedorAtivo = false;
     }

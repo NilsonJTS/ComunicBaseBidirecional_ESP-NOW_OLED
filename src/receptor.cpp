@@ -7,6 +7,10 @@
 #include <ESPAsyncWebServer.h>
 #include <LittleFS.h>
 #include <HTTPClient.h>
+#include <ArduinoJson.h>
+#include <WiFiClientSecure.h>
+#include <SPI.h>
+#include <LoRa.h>
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -14,6 +18,7 @@ Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 AsyncWebServer server(80);
 
 volatile bool enviarHostgator = false;
+unsigned long ultimoComando = 0;
 
 int canalRoteador = 1;
 const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
@@ -39,9 +44,6 @@ struct_mensagem dadosRecebidos;
 struct_comando comandoEnvio;
 esp_now_peer_info_t peerInfo;
 bool exaustaoLigada = false;
-
-#include <WiFiClientSecure.h>
-#include <HTTPClient.h>
 
 void enviarParaHostgator() {
     if (WiFi.status() == WL_CONNECTED) {
@@ -88,10 +90,113 @@ void enviarParaHostgator() {
     }
 }
 
+void lerComandoHostgator()
+{
+    if (WiFi.status() == WL_CONNECTED)
+    {
+        WiFiClientSecure client;
+        client.setInsecure();
+
+        HTTPClient http;
+
+        if (http.begin(client, "https://estudecertoja.com.br/zoocontrol/ler_comando.php"))
+        {
+            int httpCode = http.GET();
+
+            Serial.print("Resposta comando: ");
+            Serial.println(httpCode);
+
+            if (httpCode > 0)
+            {
+                String resposta = http.getString();
+
+
+                //--- bloco q lê ultima linha db comandos ---
+                JsonDocument doc;
+                DeserializationError erro = deserializeJson(doc, resposta);
+
+                if (erro)
+                {
+                    Serial.println("Erro ao interpretar JSON");
+                    http.end();
+                    return;
+                }
+
+                int idComando = doc["id"].as<int>();
+                Serial.print("ID do comando: "); //2 printSerial p confirmar que idComando recebeu id certo
+                Serial.println(idComando); 
+
+                if (idComando == 0)
+                {
+                    http.end();
+                    return;
+                }
+
+                comandoEnvio.acionarAquecedor = doc["acionar_aquecedor"].as<int>();
+                // comandoEnvio.ligarExaustao = doc["ligar_exaustao"].as<int>(); //não mudar estado de exaustor pelo banco
+
+                //bloco teste, desligadar após confirmar funcionamento
+                Serial.print("***Comando enviado - Aquecedor: ");
+                Serial.print(comandoEnvio.acionarAquecedor);
+                Serial.print(" | Exaustao: ");
+                Serial.println(comandoEnvio.ligarExaustao);
+
+                //--- Bloco q envia comando recebido db comandos>net>receptor p emissor
+                esp_err_t resultado = esp_now_send(macEmissor,
+                                   (uint8_t *)&comandoEnvio,
+                                   sizeof(comandoEnvio));
+
+                Serial.print("ESP-NOW aquecedor: ");
+                Serial.println(resultado);
+
+                if (resultado == ESP_OK)
+                {
+                    WiFiClientSecure client;
+                    client.setInsecure();
+
+                    HTTPClient http;
+
+                    String url = "https://estudecertoja.com.br/zoocontrol/executar_comando.php?id=" + String(idComando);
+
+                    if (http.begin(client, url))
+                    {
+                        int resposta = http.GET();
+
+                        Serial.print("Atualizar comando: ");
+                        Serial.println(resposta);
+
+                        http.end();
+                    }
+                }
+
+                //------------------------------------------------
+
+                Serial.print("Aquecedor: ");
+                Serial.println(comandoEnvio.acionarAquecedor);
+
+                Serial.print("Exaustao: ");
+                Serial.println(comandoEnvio.ligarExaustao);
+
+                //--------------------------------------
+
+                Serial.println("JSON recebido:");
+                Serial.println(resposta);
+            }
+
+            http.end();
+        }
+    }
+}
+
 void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     if (len == sizeof(dadosRecebidos)) {
         memcpy(&dadosRecebidos, incomingData, sizeof(dadosRecebidos));
         
+        Serial.print("Temp: ");
+        Serial.print(dadosRecebidos.temperatura, 1);
+        Serial.print("  ExaustaoLigada: ");
+        Serial.println(exaustaoLigada);
+
         display.clearDisplay();
         display.setCursor(0, 0);
         display.println("PLACA B (RECEPTOR)");
@@ -113,7 +218,9 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
             exaustaoLigada = true;
 
             comandoEnvio.acionarAquecedor = false;
+            Serial.print("Enviando LigarExaustao = ");
             comandoEnvio.ligarExaustao = true;
+            Serial.println(comandoEnvio.ligarExaustao);
 
             esp_now_send(macEmissor,
                          (uint8_t *)&comandoEnvio,
@@ -126,7 +233,10 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
             exaustaoLigada = false;
 
             comandoEnvio.acionarAquecedor = false;
+
+            Serial.print("Enviando LigarExaustao = ");
             comandoEnvio.ligarExaustao = false;
+            Serial.println(comandoEnvio.ligarExaustao);
 
             esp_now_send(macEmissor,
                         (uint8_t *)&comandoEnvio,
@@ -140,9 +250,25 @@ void AoReceber(const uint8_t *mac_addr, const uint8_t *incomingData, int len) {
     }
 }
 
+#define LORA_SS    18
+#define LORA_RST   14
+#define LORA_DIO0  26
+
 void setup() {
     Serial.begin(115200);
     delay(1000); // Tempo para estabilizar a Serial
+
+    Serial.println("Passo 1 Lora");
+    SPI.begin(5, 19, 27, 18);
+    Serial.println("Passo 2 Lora");
+    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
+    Serial.println("Passo 3 Lora");
+    if (!LoRa.begin(915E6))
+    {
+        Serial.println("Falha ao iniciar LoRa");
+        while (true);
+    }
+    Serial.println("LoRa iniciado com sucesso");
 
     Wire.begin(21, 22);
     display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
@@ -247,9 +373,28 @@ void setup() {
 
 void loop() 
 {
+    // Teste de cominicação Lora
+    // int packetSize = LoRa.parsePacket();
+    // if (packetSize)
+    // {
+    //     Serial.print("Recebido: ");
+    //     while (LoRa.available())
+    //     {
+    //         Serial.print((char)LoRa.read());
+    //     }
+    //     Serial.println();
+    // }
+
+    if (millis() - ultimoComando >= 5000)
+    {
+        ultimoComando = millis();
+        lerComandoHostgator();
+    }
+
     if (enviarHostgator)
     {
         enviarHostgator = false;
         enviarParaHostgator();
     }
+
 }
