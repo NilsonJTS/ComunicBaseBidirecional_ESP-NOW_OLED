@@ -1,9 +1,9 @@
 ## 7. Próximos Passos
 
-9 - inserção de logo e relatorio de dados do banco sql no site
-9.1 - Transição de rádio: Migrar a comunicação entre Emissor e Receptor de:
-        protocolo ESP-NOW 2,4GHz para a biblioteca nativa do chip LoRa SX127x 915MHz, mantendo o Wi-Fi do Receptor dedicado apenas à internet.
 10 - teste de campo para verificação de funcionamento à distancia com powerbank alimentando o receptor, e teste via internet com smartfone
+10.1 - Reorganização de código, preparando estrutura para POO
+10.2 - Estudo direcionado ao código com objetivo de dominar cada parte do sistema.
+10.3 - inserção de logo e relatorio de dados do banco sql no site
 11 - configurar nova unidade esp32 LyLigo oled (que ainda será adquirida) para servir de gateway e aumentar alcance
 12 - definir todas as necessidades de aplicações com seus respectivos sensores (apenas quando todos os passos anteriores forem consolidados)
 13 - Refatorar o código C++ aplicando **Programação Orientada a Objetos (POO)** com classes dedicadas.
@@ -28,3 +28,5 @@
 6 - criação de um banco de dados sql no provedor hostgator
 7 - inserção de dados automaticamente (hora/temperatura/umidade) no banco de dados com PHP
 8 - inserção de site para acesso global na hostgator, tão simples quanto o site do LittleFS
+9 - Transição de rádio: Migrar a comunicação entre Emissor e Receptor de:
+        protocolo ESP-NOW 2,4GHz para a biblioteca nativa do chip LoRa SX127x 915MHz, mantendo o Wi-Fi do Receptor dedicado apenas à internet.

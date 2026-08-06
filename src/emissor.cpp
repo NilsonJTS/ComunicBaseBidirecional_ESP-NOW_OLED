@@ -38,14 +38,48 @@ typedef struct struct_mensagem {
 typedef struct struct_comando {
     bool acionarAquecedor;
     bool ligarExaustao;
+    int rssi; //forçaSinalMedidaNoReceptor
 } struct_comando;
 
 struct_mensagem dadosEnvio;
 struct_comando comandoRecebido;
 esp_now_peer_info_t peerInfo;
 
+int ultimoRssi=0; //GuardaRssiParaExibirNoOled
 int contadorPacotes = 0;
 unsigned long ultimoEnvio = 0;
+
+void enviarDadosLoRa() {
+    LoRa.beginPacket();
+    LoRa.write((uint8_t *)&dadosEnvio, sizeof(dadosEnvio));
+    LoRa.endPacket();
+    Serial.println(">>> Pacote enviado via LoRa!");
+}
+
+void verificarRespostaLoRa() {
+    int packetSize = LoRa.parsePacket();
+    if (packetSize == sizeof(comandoRecebido)) {
+        LoRa.readBytes((uint8_t *)&comandoRecebido, sizeof(comandoRecebido));
+        
+        // Atualiza a força do sinal recebida
+        ultimoRssi = comandoRecebido.rssi;
+        
+        Serial.print("<<< Resposta LoRa recebida! RSSI: ");
+        Serial.print(ultimoRssi);
+        Serial.println(" dBm");
+
+        // Executa o comando do aquecedor se foi acionado
+        if (comandoRecebido.acionarAquecedor && !aquecedorAtivo) {
+            digitalWrite(PINO_AQUECEDOR, HIGH);
+            aquecedorAtivo = true;
+            tempoInicioAquecedor = millis();
+            Serial.println(">>> Aquecedor Ligado via LoRa! <<<");
+        }
+
+        // Executa o comando da exaustão
+        digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
+    }
+}
 
 void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
     memcpy(&comandoRecebido, incomingData, sizeof(comandoRecebido));
@@ -145,6 +179,9 @@ void loop() {
         aquecedorAtivo = false;
     }
 
+     // Verifica continuamente se chegou resposta via LoRa
+    verificarRespostaLoRa();
+
     if (millis() - ultimoEnvio >= 2000) {
         ultimoEnvio = millis();
 
@@ -174,10 +211,15 @@ void loop() {
         display.print(dadosEnvio.umidade, 1);
         display.println(" %");
         display.setCursor(0, 48);
-        display.print("Pacote enviado: #");
-        display.println(dadosEnvio.contador);
+        display.print("Sinal: ");
+        display.print(ultimoRssi);
+        display.println(" dBm");
         display.display();
 
-        esp_now_send(macReceptor, (uint8_t *)&dadosEnvio, sizeof(dadosEnvio));
+        //esp_now_send(macReceptor, (uint8_t *)&dadosEnvio, sizeof(dadosEnvio)); //substituido por Lora abaixo
+
+        // ENVIO VIA LORA (Substituiu o ESP-NOW)
+        enviarDadosLoRa();
+
     }
 }

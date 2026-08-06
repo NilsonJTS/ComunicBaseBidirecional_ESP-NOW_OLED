@@ -24,6 +24,9 @@ int canalRoteador = 1;
 const float TEMPERATURA_LIGA_EXAUSTAO = 30.0;
 const float TEMPERATURA_DESLIGA_EXAUSTAO = 28.0;
 
+int ultRssiEnviado = -999; // Guarda o último RSSI enviado ao banco
+const int DELTA_RSSI_MIN = 5; // VariaçãoMinSinal dBm(5 dBm)
+
 // --- VARIÁVEIS DE CONTROLE DE FILTRO DE ENVIO ---
 float ultTempEnviada = -999.0;
 float ultUmidEnviada = -999.0;
@@ -53,12 +56,27 @@ typedef struct struct_mensagem {
 typedef struct struct_comando {
     bool acionarAquecedor;
     bool ligarExaustao;
+    int rssi; //ForçaDoSinalEnviarAoEmissor
 } struct_comando;
+
+int ultimoRssiRecebido = 0;
 
 struct_mensagem dadosRecebidos;
 struct_comando comandoEnvio;
 esp_now_peer_info_t peerInfo;
 bool exaustaoLigada = false;
+
+void enviarRespostaLoRa() {
+    comandoEnvio.rssi = ultimoRssiRecebido;
+    comandoEnvio.ligarExaustao = exaustaoLigada;
+
+    LoRa.beginPacket();
+    LoRa.write((uint8_t *)&comandoEnvio, sizeof(comandoEnvio));
+    LoRa.endPacket();
+
+    // Reseta o gatilho do aquecedor após enviar uma vez
+    comandoEnvio.acionarAquecedor = false;
+}
 
 bool precisaEnviarParaNuvem(const struct_mensagem& dados) {
     // 1. PRIMEIRO ENVIO: Força a gravação da 1ª leitura após o ESP32 ligar
@@ -78,7 +96,7 @@ bool precisaEnviarParaNuvem(const struct_mensagem& dados) {
         return false;
     }
 
-    // 4. CONVERSÃO PARA DÉCIMOS INTEIROS (Sua excelente ideia!)
+    // 4. CONVERSÃO PARA DÉCIMOS INTEIROS (excelente ideia!)
     int tempAtualInt = round(dados.temperatura * 10.0);
     int tempUltimaInt = round(ultTempEnviada * 10.0);
 
@@ -92,18 +110,22 @@ bool precisaEnviarParaNuvem(const struct_mensagem& dados) {
     bool tempMudou = abs(tempAtualInt - tempUltimaInt) >= deltaTempInt;
     bool umidMudou = abs(umidAtualInt - umidUltimaInt) >= deltaUmidInt;
 
-    // 6. COMPARAÇÃO DOS ESTADOS DOS RELÉS E SENSORES (Variáveis separadas!)
+    // 6. COMPARAÇÃO DO SINAL LORA (RSSI)
+    bool rssiMudou = abs(ultimoRssiRecebido - ultRssiEnviado) >= DELTA_RSSI_MIN;
+
+    // 7. COMPARAÇÃO DOS ESTADOS DOS RELÉS E SENSORES (Variáveis separadas!)
     bool estadoMudou = (dados.energiaOk != ultEnergiaEnviada) ||
                        (dados.exaustaoOK != ultExaustaoOKEnviada) ||
                        (exaustaoLigada != ultExaustaoLigadaEnviada) ||
                        (comandoEnvio.acionarAquecedor != ultAquecedorEnviado);
 
     // 7. SE HOUVER VARIAÇÃO RELEVANTE
-    if (tempMudou || umidMudou || estadoMudou) {
+    if (tempMudou || umidMudou || estadoMudou || rssiMudou) {
         Serial.print(">>> DISPARO BANCO | Motivo: ");
         if (tempMudou) Serial.print("[Temp] ");
         if (umidMudou) Serial.print("[Umid] ");
         if (estadoMudou) Serial.print("[Relês/Energia] ");
+        if (rssiMudou) Serial.print("[Sinal LoRa (RSSI)]");
         Serial.println();
         return true;
     }
@@ -118,9 +140,61 @@ void atualizarHistoricoEnvio(const struct_mensagem& dados) {
     ultExaustaoOKEnviada = dados.exaustaoOK;
     ultExaustaoLigadaEnviada = exaustaoLigada;
     ultAquecedorEnviado = comandoEnvio.acionarAquecedor;
+    ultRssiEnviado = ultimoRssiRecebido;
 
     primeiroEnvioRealizado = true;
     tempoUltimoEnvioNuvem = millis();
+}
+
+void verificarRecebimentoLoRa() {
+    int packetSize = LoRa.parsePacket();
+    if (packetSize == sizeof(dadosRecebidos)) {
+        LoRa.readBytes((uint8_t *)&dadosRecebidos, sizeof(dadosRecebidos));
+        
+        // 1. CAPTURA A FORÇA DO SINAL EM dBm (Nativo da biblioteca LoRa)
+        ultimoRssiRecebido = LoRa.packetRssi();
+
+        Serial.print(">>> Pacote LoRa Recebido! RSSI: ");
+        Serial.print(ultimoRssiRecebido);
+        Serial.println(" dBm");
+
+        // 2. Atualiza o Display OLED da Placa B (Receptor)
+        display.clearDisplay();
+        display.setCursor(0, 0);
+        display.println("PLACA B (RECEPTOR)");
+        display.setCursor(0, 16);
+        display.print("Temp: ");
+        display.print(dadosRecebidos.temperatura, 1);
+        display.println(" C");
+        display.setCursor(0, 32);
+        display.print("Umid: ");
+        display.print(dadosRecebidos.umidade, 1);
+        display.println(" %");
+        display.setCursor(0, 48);
+        display.print("Sinal: ");
+        display.print(ultimoRssiRecebido);
+        display.println(" dBm");
+        display.display();
+
+        // 3. Controle Automático de Exaustão por Temperatura
+        if (!exaustaoLigada && dadosRecebidos.temperatura >= TEMPERATURA_LIGA_EXAUSTAO) {
+            exaustaoLigada = true;
+            Serial.println(">>> Exaustao LIGADA por alta temperatura <<<");
+        }
+        if (exaustaoLigada && dadosRecebidos.temperatura <= TEMPERATURA_DESLIGA_EXAUSTAO) {
+            exaustaoLigada = false;
+            Serial.println(">>> Exaustao DESLIGADA por temperatura normal <<<");
+        }
+
+        // 4. Responde ao Emissor via LoRa (Devolve a força do sinal para o OLED do carro)
+        enviarRespostaLoRa();
+
+        // 5. Aplica o nosso Filtro Inteligente antes de mandar para o banco na Hostgator
+        if (precisaEnviarParaNuvem(dadosRecebidos)) {
+            enviarHostgator = true;
+            atualizarHistoricoEnvio(dadosRecebidos);
+        }
+    }
 }
 
 void enviarParaHostgator() {
@@ -144,7 +218,8 @@ void enviarParaHostgator() {
             jsonPayload += "\"energia_ok\":" + String(dadosRecebidos.energiaOk ? "true" : "false") + ",";
             jsonPayload += "\"exaustao_ligada\":" + String(exaustaoLigada ? "true" : "false") + ",";
             jsonPayload += "\"exaustao_ok\":" + String(dadosRecebidos.exaustaoOK ? "true" : "false") + ",";
-            jsonPayload += "\"aquecedor_ligado\":" + String(comandoEnvio.acionarAquecedor ? "true" : "false");
+            jsonPayload += "\"aquecedor_ligado\":" + String(comandoEnvio.acionarAquecedor ? "true" : "false") + ",";
+            jsonPayload += "\"rssi\":" + String(ultimoRssiRecebido); 
             jsonPayload += "}";
 
             int httpResponseCode = http.POST(jsonPayload);
@@ -458,24 +533,17 @@ void setup() {
 
 void loop() 
 {
-    // Teste de cominicação Lora
-    // int packetSize = LoRa.parsePacket();
-    // if (packetSize)
-    // {
-    //     Serial.print("Recebido: ");
-    //     while (LoRa.available())
-    //     {
-    //         Serial.print((char)LoRa.read());
-    //     }
-    //     Serial.println();
-    // }
+    //EscutaPacotesLoraDoEmissor
+    verificarRecebimentoLoRa();
 
+    //VerificaBancoHostgatorPeriodicamente
     if (millis() - ultimoComando >= 5000)
     {
         ultimoComando = millis();
         lerComandoHostgator();
     }
 
+    //SeFiltroDadosAutorizar,EnviaLeituraParaHostgator
     if (enviarHostgator)
     {
         enviarHostgator = false;
