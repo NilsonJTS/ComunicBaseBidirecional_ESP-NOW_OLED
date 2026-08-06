@@ -1,5 +1,10 @@
 **Codigos Bash**
 
+Get-ChildItem -Recurse -Filter *.md | Where-Object { $_.Name -ne "documento_final.md" -and $_.Name -ne "Main.md" } | ForEach-Object {
+    "`n`n# --- Arquivo: $($_.Name) ---`n"
+    Get-Content $_.FullName -Raw
+} | Out-File -Encoding utf8 documento_final.md
+
 //Codigo para upload de LittleFS (faz upload de html,css,js)
 pio run -e ttgo_receptor -t uploadfs
 

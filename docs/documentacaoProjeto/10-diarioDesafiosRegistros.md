@@ -1,5 +1,7 @@
 Diário de dificuldades encontradas:
 
+05/08/26: Finalmente consegui filtrar os dados, eles estavam subindo para o banco de dados a cada 1 segundo, que é a transmissão de pacotes do emissor para o receptor, mas era um exagero enorme, então definimos que quando a variação de temperatura fosse >=0.5, ou a umidade >=2.0, um novo insert acontece em leituras sensores, além de um insert a cada 5 minutos, mesmo sem variação, para manter o sistema vivo. Porém, a contagem de pacotes que fica no rodapé do site, fica marcando o numero do pacote, e isso não faz mais sentido, então mudei para mostrar data/hora da ultima alteração. Neste momento, tudo está funcionando como esperado, apesar do botão do site ainda precisar de apertar várias vezes para funcionar.
+
 03/08/26: Depois de diversos dias tentando resolver o bug do botão virtual, que precisa de vários cliques para acionar o funcionamento do aquecedor, eu resolvi fazer este log, porque não consegui resolver, e porque farei um commit, mesmo sem ter resolvido, porque fiz muitas correções no código, e não consigo mais retornar ao estado anterior.
 
 31/07/26: Criação de acionamento de recurso aquecedor, diretamente do site, recebido pelo receptor, enviado via espNow para o emissor executar. Por indicação da IA, resolvi fazer esta comunicação do site para o receptor, passando pelo roteador de casa, através de uma tabela no banco criado anteriormente, seria a tabela comandos, então a ação de clicar no botão virtual html, cria um novo dado no banco, o receptor lê este dado e aciona o funcionamento do aquecedor por 30seg. Do lado do hostgator, o php pega esta leitura da ultima linha do banco, e cria um json para enviar ao receptor, que pega o json, reatribui cada dado à uma var através da biblioteca <ArduinoJson.h>, mas por algum motivo, a biblioteca não converteu o dado booleano 0 e 1 para int, já que veio do php como string, foi preciso usar .as<int>(); ao final da atribuição.
@@ -31,14 +33,3 @@ Não pode ser um hub passivo, pois precisei de um cabo extensor para alcançar o
 22/07/26: Inserção de DHT11, incremento de pacote de dados (struct) para receber os dados de Umidade e Temperatura além da contagem de pacotes já implementada antes. Não houve dificuldades.
 
 21/07/26: Comunicação básica entre dispositivos, não houve dificuldades, precisei etiquetar os dispositivos com sua mascara MAC e definir as funções de cada um a única comunicação neste dia foi a contagem de envios de pacotes a cada 1seg.
-
-### Lista de passos já executados
-
-1 - Criar comunicação simples apenas transmitindo contador de envio de pacotes a cada 1seg
-2 - Inserir DHT11 fornecendo temperatura e umidade em ambos visores (emissor, receptor)
-3 - Implementar site no receptor (LittleFS), para acesso e visualização de dados DHT11 via roteador esp32
-4 - Implementar site: botão que aciona porta GPIO23 emissor por 30seg e led virtual que acende 30seg com retorno de GPIO23 em GPIO34
-5 - Acionamento auto ventilador se temperatura >28.0 e desl auto <28.0, com retorno indicando funcionamento no html pelo GPIO35
-5.1 - ConexãoResidencia: MigraçãoReceptor d modo AccessPointIsolado p RoteadorResidencia(Modo STA), obtendoIPlocal(192.168.15.84) e sintonizando a comunic ESP-NOWemissor no Canal11.
-6 - criação de um banco de dados sql no provedor hostgator
-7 - inserção de dados automaticamente (hora/temperatura/umidade) no banco de dados com PHP
