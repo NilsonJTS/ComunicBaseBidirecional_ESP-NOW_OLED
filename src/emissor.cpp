@@ -1,185 +1,38 @@
-#include <esp_now.h>
-#include <esp_wifi.h>
-#include <WiFi.h>
-#include <Wire.h>
-#include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Arduino.h>
 #include <DHT.h>
-#include <SPI.h>
-#include <LoRa.h>
+#include "msgStruct.h"
+#include "emissor_pinos.h"
+#include "emissor_display.h"
+#include "emissor_lora.h"
+#include "emissor_aquecedor.h"
 
-#define SCREEN_WIDTH 128
-#define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
-
-#define DHTPIN 4
-#define DHTTYPE DHT11
 DHT dht(DHTPIN, DHTTYPE);
 
-#define PINO_AQUECEDOR 23
-#define PINO_EXAUSTAO 25
-#define PINO_RETORNO_ENERGIA 34
-#define PINO_RETORNO_EXAUASTAO 35
-
-unsigned long tempoInicioAquecedor = 0;
-bool aquecedorAtivo = false;
-const unsigned long DURACAO_AQUECEDOR = 30000; // 30s
-
-uint8_t macReceptor[] = {0xA0, 0xDD, 0x6C, 0x67, 0xC6, 0x34}; // MAC do Receptor
-
-typedef struct struct_mensagem {
-    int contador;
-    float temperatura;
-    float umidade;
-    bool energiaOk;
-    bool exaustaoOK;
-} struct_mensagem;
-
-typedef struct struct_comando {
-    bool acionarAquecedor;
-    bool ligarExaustao;
-    int rssi; //forçaSinalMedidaNoReceptor
-} struct_comando;
-
 struct_mensagem dadosEnvio;
-struct_comando comandoRecebido;
-esp_now_peer_info_t peerInfo;
-
-int ultimoRssi=0; //GuardaRssiParaExibirNoOled
 int contadorPacotes = 0;
 unsigned long ultimoEnvio = 0;
-
-void enviarDadosLoRa() {
-    LoRa.beginPacket();
-    LoRa.write((uint8_t *)&dadosEnvio, sizeof(dadosEnvio));
-    LoRa.endPacket();
-    Serial.println(">>> Pacote enviado via LoRa!");
-}
-
-void verificarRespostaLoRa() {
-    int packetSize = LoRa.parsePacket();
-    if (packetSize == sizeof(comandoRecebido)) {
-        LoRa.readBytes((uint8_t *)&comandoRecebido, sizeof(comandoRecebido));
-        
-        // Atualiza a força do sinal recebida
-        ultimoRssi = comandoRecebido.rssi;
-        
-        Serial.print("<<< Resposta LoRa recebida! RSSI: ");
-        Serial.print(ultimoRssi);
-        Serial.println(" dBm");
-
-        // Executa o comando do aquecedor se foi acionado
-        if (comandoRecebido.acionarAquecedor && !aquecedorAtivo) {
-            digitalWrite(PINO_AQUECEDOR, HIGH);
-            aquecedorAtivo = true;
-            tempoInicioAquecedor = millis();
-            Serial.println(">>> Aquecedor Ligado via LoRa! <<<");
-        }
-
-        // Executa o comando da exaustão
-        digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
-    }
-}
-
-void AoReceberComando(const uint8_t *mac, const uint8_t *incomingData, int len) {
-    memcpy(&comandoRecebido, incomingData, sizeof(comandoRecebido));
-
-    //---imprime serial confirma recebimento comando do db comandos
-    Serial.println("=== COMANDO RECEBIDO ===");
-    Serial.print("Aquecedor: ");
-    Serial.println(comandoRecebido.acionarAquecedor);
-
-    Serial.print("Exaustao: ");
-    Serial.println(comandoRecebido.ligarExaustao);
-    //--------------------------------------------------------
-
-    if (comandoRecebido.acionarAquecedor){
-        digitalWrite(PINO_AQUECEDOR, HIGH);
-        
-        //diagnostico botão, deletar
-        Serial.print("GPIO aquecedor apos HIGH = ");
-        Serial.println(digitalRead(PINO_AQUECEDOR));
-
-        aquecedorAtivo = true;
-        tempoInicioAquecedor = millis();
-        Serial.println(">>> Aquecedor Ligado via ESP-NOW! <<<");
-        //diagnostico ligamento:
-        Serial.print("aquecedorAtivo = ");
-        Serial.println(aquecedorAtivo);
-        Serial.print("tempoInicioAquecedor = ");
-        Serial.println(tempoInicioAquecedor);
-        //-----
-    }
-    Serial.print("Comando Exaustao recebido: ");
-    Serial.println(comandoRecebido.ligarExaustao);
-    digitalWrite(PINO_EXAUSTAO, comandoRecebido.ligarExaustao ? HIGH : LOW);
-}
-
-#define LORA_SS    18
-#define LORA_RST   14
-#define LORA_DIO0  26
 
 void setup() {
     Serial.begin(115200);
 
-    SPI.begin(5, 19, 27, 18);
-    LoRa.setPins(LORA_SS, LORA_RST, LORA_DIO0);
-    if (!LoRa.begin(915E6))
-    {
-        Serial.println("Falha ao iniciar LoRa");
-        while (true);
-    }
-    Serial.println("LoRa iniciado com sucesso");
-    
-    // Inicialização do OLED no Emissor
-    Wire.begin(21, 22);
-    display.begin(SSD1306_SWITCHCAPVCC, 0x3C);
-    display.setTextColor(WHITE);
-    display.setTextSize(1);
-    display.clearDisplay();
-    display.setCursor(0, 0);
-    display.println("PLACA A (EMISSOR)");
-    display.display();
+    iniciarLoRaEmissor();
+    iniciarDisplayEmissor();
 
-    // Configuração e inicialização do DHT11
     pinMode(DHTPIN, INPUT_PULLUP);
     dht.begin();
     delay(2000); // Estabilização do sensor
 
-    pinMode(PINO_AQUECEDOR, OUTPUT);
+    iniciarAquecedor();
 
     pinMode(PINO_RETORNO_ENERGIA, INPUT);
 
     pinMode(PINO_EXAUSTAO, OUTPUT);
     digitalWrite(PINO_EXAUSTAO, LOW);
     pinMode(PINO_RETORNO_EXAUASTAO, INPUT);
-
-    WiFi.mode(WIFI_STA);
-    esp_wifi_set_promiscuous(true);
-    esp_wifi_set_channel(11, WIFI_SECOND_CHAN_NONE);
-    esp_wifi_set_promiscuous(false);
-
-    if (esp_now_init() == ESP_OK) {
-        esp_now_register_recv_cb(AoReceberComando);
-        memcpy(peerInfo.peer_addr, macReceptor, 6);
-        peerInfo.channel = 11;
-        peerInfo.encrypt = false;
-        esp_now_add_peer(&peerInfo);
-    }
 }
 
 void loop() {
-    
-    // Desligamento automático temporizado
-    if (aquecedorAtivo && (millis() - tempoInicioAquecedor >= DURACAO_AQUECEDOR)) {
-
-        Serial.println(">>> DESLIGAMENTO AUTOMATICO <<<");
-
-        digitalWrite(PINO_AQUECEDOR, LOW);
-        aquecedorAtivo = false;
-    }
-
-     // Verifica continuamente se chegou resposta via LoRa
+    atualizarAquecedor();
     verificarRespostaLoRa();
 
     if (millis() - ultimoEnvio >= 2000) {
@@ -198,28 +51,7 @@ void loop() {
         dadosEnvio.energiaOk = digitalRead(PINO_RETORNO_ENERGIA);
         dadosEnvio.exaustaoOK = digitalRead(PINO_RETORNO_EXAUASTAO);
 
-        // Atualização do Display OLED local no Emissor
-        display.clearDisplay();
-        display.setCursor(0, 0);
-        display.println("PLACA A (EMISSOR)");
-        display.setCursor(0, 16);
-        display.print("Temp: ");
-        display.print(dadosEnvio.temperatura, 1);
-        display.println(" C");
-        display.setCursor(0, 32);
-        display.print("Umid: ");
-        display.print(dadosEnvio.umidade, 1);
-        display.println(" %");
-        display.setCursor(0, 48);
-        display.print("Sinal: ");
-        display.print(ultimoRssi);
-        display.println(" dBm");
-        display.display();
-
-        //esp_now_send(macReceptor, (uint8_t *)&dadosEnvio, sizeof(dadosEnvio)); //substituido por Lora abaixo
-
-        // ENVIO VIA LORA (Substituiu o ESP-NOW)
-        enviarDadosLoRa();
-
+        atualizarDisplayEmissor(dadosEnvio, ultimoRssi);
+        enviarDadosLoRa(dadosEnvio);
     }
 }

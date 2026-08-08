@@ -1,0 +1,9 @@
+#pragma once
+
+#define DHTPIN 4
+#define DHTTYPE DHT11
+
+#define PINO_AQUECEDOR 23
+#define PINO_EXAUSTAO 25
+#define PINO_RETORNO_ENERGIA 34
+#define PINO_RETORNO_EXAUASTAO 35
